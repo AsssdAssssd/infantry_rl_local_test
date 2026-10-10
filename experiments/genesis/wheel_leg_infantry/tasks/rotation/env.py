@@ -54,6 +54,7 @@ class RotateEnv(RotateRewards, LocomotionEnv):
         device = gs.device
         self.gimbal_ang = torch.zeros((num_envs,), dtype=gs.tc_float, device=device)
         self.gimbal_world_yaw = torch.zeros((num_envs,), dtype=gs.tc_float, device=device)
+        self.gimbal_yaw_abs_vel=torch.zeros((num_envs,), dtype=gs.tc_float, device=device)
         self.gimbal_yaw_ref = torch.zeros((num_envs,), dtype=gs.tc_float, device=device)
 
         super().__init__(
@@ -123,6 +124,9 @@ class RotateEnv(RotateRewards, LocomotionEnv):
         self.gimbal_world_yaw.copy_(_wrap(base_yaw + self.gimbal_ang))
         # 参考角按“云台世界 yaw 速率”命令积分；command=0 时保持不变。
         self.gimbal_yaw_ref.copy_(_wrap(self.gimbal_yaw_ref + self.commands[:, 3] * self.dt))
+        self.gimbal_yaw_abs_vel.copy_(
+            self.robot.get_ang()[:, 2] + self.joint_vel[:, self.gimbal_joint_index]
+        )
 
     def _reset_task_buffers(self, env_idx):
         selected = slice(None) if env_idx is None else env_idx
@@ -130,6 +134,8 @@ class RotateEnv(RotateRewards, LocomotionEnv):
         self.gimbal_ang[selected] = 0.0
         self.gimbal_world_yaw[selected] = 0.0
         self.gimbal_yaw_ref[selected] = 0.0
+        self.gimbal_yaw_abs_vel[selected] = 0.0
+        
 
     # ============ 观测（父类任务扩展点） ============
 
@@ -141,6 +147,9 @@ class RotateEnv(RotateRewards, LocomotionEnv):
             "gimbal_yaw_joint": (self.gimbal_world_yaw * self.obs_scales["gimbal_yaw_angle"]).unsqueeze(-1),  # 1
             "gimbal_yaw_2_base_angle": torch.stack([torch.sin(rel), torch.cos(rel)], dim=-1),  # 2
             "gimbal_yaw_error": torch.stack([torch.sin(err), torch.cos(err)], dim=-1),  # 2
+            "gimbal_yaw_abs_vel": (
+                self.gimbal_yaw_abs_vel * self.obs_scales["gimbal_yaw_vel"]
+            ).unsqueeze(-1),  # 1
         }
 
     def _get_task_privileged_observation_components(self):

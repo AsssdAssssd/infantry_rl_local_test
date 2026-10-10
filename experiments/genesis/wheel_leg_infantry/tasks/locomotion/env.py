@@ -1225,7 +1225,7 @@ class LocomotionEnv(LocomotionRewards):
 
     def _apply_command_ranges(self, values):
         """应用课程指令范围和静止采样率；在下一次命令重采样时生效。"""
-        allowed = {"lin_vel_range", "ang_vel_range", "base_height_range", "standing_probability"}
+        allowed = {"lin_vel_range", "ang_vel_range", "base_height_range", "standing_probability","gimbal_yaw_ang"}
         unknown = set(values).difference(allowed)
         if unknown:
             raise KeyError(f"Unsupported command range curriculum keys: {sorted(unknown)}")
@@ -1330,7 +1330,7 @@ class LocomotionEnv(LocomotionRewards):
     def _apply_reset_ranges(self, values):
         """应用课程阶段的 base 初始位置、姿态和速度随机化范围。"""
         allowed = {
-            "base_init_pos_range",
+            "base_init_pos_range", #TODO 后续做域随机化需要在这增加allowed
             "base_init_rpy_offset_range_deg",
             "base_init_lin_vel_range",
             "base_init_ang_vel_range",
