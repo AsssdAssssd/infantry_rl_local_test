@@ -48,12 +48,9 @@ class RotateEnv(RotateRewards, LocomotionEnv):
             raise ValueError("rotate currently supports exactly one gimbal yaw joint")
         self.gimbal_joint_ang_scale = float(env_cfg.get("gimbal_joint_ang_scale", math.pi))
         self.gimbal_dof_idx: Optional[torch.Tensor] = None
-        self.gimbal_yaw_joint_index = int(env_cfg["joint_names"].index(self.gimbal_joint_names[0]))
-        self.gimbal_pitch_joint_index = int(env_cfg["joint_names"].index(self.gimbal_joint_names[1]))
-
 
         device = gs.device
-        self.gimbal_ang = torch.zeros((num_envs,), dtype=gs.tc_float, device=device)
+        self.gimbal_yaw_ang = torch.zeros((num_envs,), dtype=gs.tc_float, device=device)
         self.gimbal_world_yaw = torch.zeros((num_envs,), dtype=gs.tc_float, device=device)
         self.gimbal_yaw_abs_vel=torch.zeros((num_envs,), dtype=gs.tc_float, device=device)
         self.gimbal_yaw_ref = torch.zeros((num_envs,), dtype=gs.tc_float, device=device)
@@ -71,6 +68,11 @@ class RotateEnv(RotateRewards, LocomotionEnv):
 
         # 机器人已建好，拿云台 DOF 索引。
         self.gimbal_dof_idx = self._joint_dof_indices(self.gimbal_joint_names) #2
+        kp = torch.full((2,), 20.0, dtype=gs.tc_float, device=self.device)  #同其余joint，后写到config里面 TODO
+        kd = torch.full((2,), 0.6, dtype=gs.tc_float, device=self.device)
+        self.robot.set_dofs_kp(kp.tolist(), self.gimbal_dof_idx)
+        self.robot.set_dofs_kv(kd.tolist(), self.gimbal_dof_idx)
+        self.robot.set_dofs_force_range([-8.0, -8.0], [8.0, 8.0], self.gimbal_dof_idx)
 
     # ============ 命令管道：从 3 维扩到 4 维（追加云台速率） ============
 
@@ -109,11 +111,11 @@ class RotateEnv(RotateRewards, LocomotionEnv):
         """把 actor 的云台维解释为“世界 yaw 目标”，用增量式关节目标伺服。"""
         if self.gimbal_dof_idx is None:
             return
-        exec_actions = self.last_actions if self.simulate_action_latency else self.actions
-        world_target = exec_actions[:, self.gimbal_yaw_joint_index] * self.gimbal_joint_ang_scale
+
+        world_target = self.gimbal_yaw_ref #更改，不依靠策略的输出
         # 世界朝向最短路径误差 → 加到当前（未 wrap 的）关节角上，避免 ±π 处 2π 跳变
         err = _wrap(world_target - self.gimbal_world_yaw)
-        joint_target = (self.gimbal_ang + err).unsqueeze(-1)
+        joint_target = (self.gimbal_yaw_ang + err).unsqueeze(-1)
         pitch_joint_keep = torch.full((self.num_envs,1),math.radians(-20.0),dtype=gs.tc_float,device=gs.device)
 
         self.robot.control_dofs_position(torch.cat([joint_target,pitch_joint_keep],dim=-1), self.gimbal_dof_idx)
@@ -122,19 +124,19 @@ class RotateEnv(RotateRewards, LocomotionEnv):
         """更新云台关节角、世界朝向与积分参考角；在奖励计算前调用。"""
         if self.gimbal_dof_idx is None:
             return
-        self.gimbal_ang.copy_(self.joint_pos[:, self.gimbal_yaw_joint_index])
+        gimbal_pos = self.robot.get_dofs_position(self.gimbal_dof_idx)
+        gimbal_vel = self.robot.get_dofs_velocity(self.gimbal_dof_idx)
+        self.gimbal_yaw_ang.copy_(gimbal_pos[:, 0])
         base_yaw = torch.deg2rad(self.base_euler[:, 2])
-        self.gimbal_world_yaw.copy_(_wrap(base_yaw + self.gimbal_ang))
+        self.gimbal_world_yaw.copy_(_wrap(base_yaw + self.gimbal_yaw_ang))
         # 参考角按“云台世界 yaw 速率”命令积分；command=0 时保持不变。
         self.gimbal_yaw_ref.copy_(_wrap(self.gimbal_yaw_ref + self.commands[:, 3] * self.dt))
-        self.gimbal_yaw_abs_vel.copy_(
-            self.robot.get_ang()[:, 2] + self.joint_vel[:, self.gimbal_yaw_joint_index]
-        )
+        self.gimbal_yaw_abs_vel.copy_(self.robot.get_ang()[:, 2] + gimbal_vel[:, 0])
 
     def _reset_task_buffers(self, env_idx):
         selected = slice(None) if env_idx is None else env_idx
         # 初始 base 姿态与云台默认角都为 0（单位四元数），故参考角从 0 起。
-        self.gimbal_ang[selected] = 0.0
+        self.gimbal_yaw_ang[selected] = 0.0
         self.gimbal_world_yaw[selected] = 0.0
         self.gimbal_yaw_ref[selected] = 0.0
         self.gimbal_yaw_abs_vel[selected] = 0.0
@@ -153,19 +155,26 @@ class RotateEnv(RotateRewards, LocomotionEnv):
             "gimbal_yaw_abs_vel": (
                 self.gimbal_yaw_abs_vel * self.obs_scales["gimbal_yaw_vel"]
             ).unsqueeze(-1),  # 1
+            # 前向速度估计（IMU 比力 + 轮速互补滤波，赛博真机接口）。base 系 x 分量；
+            # 本车非完整约束，base 横向≈0，故策略可用 cos(rel) 投到云台系前向。
+            "estimated_forward_vel": (
+                self.estimated_base_lin_vel * self.obs_scales["lin_vel"]
+            ).unsqueeze(-1),  # 1
+            
         }
 
     def _get_task_privileged_observation_components(self):
         return {
             "privileged_gimbal_world_yaw": self.gimbal_world_yaw.unsqueeze(-1),
             "privileged_gimbal_yaw_ref": self.gimbal_yaw_ref.unsqueeze(-1),
+            "privileged_base_height": (self.base_height * self.obs_scales["base_height"]).unsqueeze(-1),
         }
 
     # ============ 诊断 ============
 
     def get_rotate_diagnostics(self, env_idx=0):
         return {
-            "gimbal_joint": self.gimbal_ang[env_idx].detach(),
+            "gimbal_joint": self.gimbal_yaw_ang[env_idx].detach(),
             "gimbal_world_yaw": self.gimbal_world_yaw[env_idx].detach(),
             "gimbal_yaw_ref": self.gimbal_yaw_ref[env_idx].detach(),
             "gimbal_yaw_error": _wrap(self.gimbal_yaw_ref[env_idx] - self.gimbal_world_yaw[env_idx]).detach(),

@@ -32,21 +32,21 @@ def get_cfgs(locomotion_cfgs=None):
 
     # ---------- 机器人：换成带 yaw 关节的模型 ----------
     # TODO 加入pitch，先不给控制，就是让他稳定到平头
-    env_cfg["num_actions"] = 8
-    env_cfg["num_joints"] = 6
+    env_cfg["num_actions"] = 6
+    env_cfg["num_joints"] = 4
     env_cfg["robot_mjcf"] = "assets/robot/wheelbipeV14_2_yaw_joint/mjcf/wheelbipeV14_2.xml"
     env_cfg["gimbal_joint_names"] = [GIMBAL_YAW_JOINT,GIMBAL_PITCH_JOINT] #可惜这个模型没有pitch倒是
-    if GIMBAL_YAW_JOINT not in env_cfg["joint_names"]:
-        env_cfg["joint_names"] = [*env_cfg["joint_names"], GIMBAL_YAW_JOINT]
-    if GIMBAL_PITCH_JOINT not in env_cfg["joint_names"]:
-            env_cfg["joint_names"] = [*env_cfg["joint_names"], GIMBAL_PITCH_JOINT]
+    # if GIMBAL_YAW_JOINT not in env_cfg["joint_names"]:
+    #     env_cfg["joint_names"] = [*env_cfg["joint_names"], GIMBAL_YAW_JOINT]
+    # if GIMBAL_PITCH_JOINT not in env_cfg["joint_names"]:
+    #         env_cfg["joint_names"] = [*env_cfg["joint_names"], GIMBAL_PITCH_JOINT]
     env_cfg["default_joint_pos"][GIMBAL_YAW_JOINT] = 0.0
     env_cfg["default_joint_pos"][GIMBAL_PITCH_JOINT] = 0.0
 
 
     # actor 输出的云台“世界 yaw 目标”的物理量程：action(-1,1) * scale
     env_cfg["gimbal_joint_ang_scale"] = math.pi
-    env_cfg["clip_gimbal_joint_action"]= 1.0  #不过其实被joint一起clip了；
+    # env_cfg["clip_gimbal_joint_action"]= 1.0  #不是动作，不clip了；
     # ---------- 观测缩放 ----------
     obs_cfg["obs_scales"]["gimbal_yaw_angle"] = 1.0 / math.pi # TODO 后续如果变化的比较大，可以换成2唯，不会跳变
     obs_cfg["obs_scales"]["gimbal_yaw_vel"] = 1.0 / math.pi
@@ -58,8 +58,12 @@ def get_cfgs(locomotion_cfgs=None):
     command_cfg["gimbal_yaw_vel_range"] = [-1.0, 1.0] #TODO 这里其他的参数还是原来的，但小陀螺差异比较大，后面记得显示更改
 
     # ---------- 奖励 ----------
-    reward_cfg["reward_scales"]["gimbal_yaw_ang"] = -10.0
-    # reward_cfg["reward_scales"]["gimbal_pitch_ang"] = -2.0
+    # reward_cfg["reward_scales"]["gimbal_yaw_ang"] = -10.0 #不需要奖励了
+    reward_cfg["reward_scales"]["tracking_lin_vel"] = -0.0
+    reward_cfg["reward_scales"]["gated_tracking_lin_vel"] = -0.0
+    reward_cfg["reward_scales"]["gimbal_spin_track_lin_vel_yaw_frame"] = -10.0
+    reward_cfg["reward_scales"]["gimbal_spin_heading_error"] = -30.0
+    reward_cfg["reward_scales"]["gimbal_spin_track_lin_vel_yaw_lower"] = -3.0
 
     # ---------- 课程：每阶段补上云台命令范围与奖励权重；默认锁 0 ----------
     #TODO 我认为还是覆盖一个比较好，课程差异还是比较大的
@@ -97,7 +101,7 @@ def _curriculum_cfg() -> dict:
                         "lin_vel_range": [0.0, 0.0],
                         "ang_vel_range": [0.0, 0.0],
                         "base_height_range": [0.22, 0.22],
-                        "gimbal_yaw_vel_range": [0.0, 0.0],
+                        "gimbal_yaw_vel_range": [-0.0, 0.0],
                     },
                     "termination_limits": {
                         "termination_if_roll_greater_than": 20.0,
@@ -122,10 +126,10 @@ def _curriculum_cfg() -> dict:
                     },
                     "command_ranges": {
                         "standing_probability": 0.1,
-                        "lin_vel_range": [-1.0, 1.0],
-                        "ang_vel_range": [-2.0, 2.0],
+                        "lin_vel_range": [-0.1, 0.1],
+                        "ang_vel_range": [-3.0, 3.0],
                         "base_height_range": [0.20, 0.30],
-                        "gimbal_yaw_vel_range": [0.0, 0.0],
+                        "gimbal_yaw_vel_range": [-0.0, 0.0],
 
                     },
                     "tracking_gate": {
@@ -137,17 +141,17 @@ def _curriculum_cfg() -> dict:
                     },
                     "reward_scales": {
                         "standing_drift": -1.0,
-                        "tracking_lin_vel": -2.0,
+                        # "tracking_lin_vel": -2.0,
                         "tracking_ang_vel": -3.0,
                         "leg_symmetry": -10.0,
                         "base_balance": -10.0,
-                        "gimbal_yaw_ang": -10.0,
+                        # "gimbal_yaw_ang": -10.0,
                     },
                 },
             },
             {
                 "name": "locomotion2",
-                "start_iteration": 2500,
+                "start_iteration": 1500,
                 "targets": {
                     "standing_reward": {"tracking_sigma": 0.05},
                     "domain_rand": {"strength": 0.0},
@@ -160,10 +164,10 @@ def _curriculum_cfg() -> dict:
                     },
                     "command_ranges": {
                         "standing_probability": 0.1,
-                        "lin_vel_range": [-2.0, 2.0],
-                        "ang_vel_range": [-3.0, 3.0],
+                        "lin_vel_range": [-0.25, 0.25],
+                        "ang_vel_range": [-6.0, 6.0],
                         "base_height_range": [0.20, 0.34],
-                        "gimbal_yaw_vel_range": [0.0, 0.0],
+                        "gimbal_yaw_vel_range": [-0.2, 0.2],
 
                     },
                     "tracking_gate": {
@@ -175,20 +179,20 @@ def _curriculum_cfg() -> dict:
                     },
                     "reward_scales": {
                         "standing_drift": -2.0,
-                        "gated_tracking_lin_vel": 5.0,
-                        "gated_tracking_ang_vel": 7.0,
+                        # "gated_tracking_lin_vel": 5.0,
+                        # "gated_tracking_ang_vel": 7.0,
                         "base_balance": -15.0,
                         "base_contact": -15.0,
                         "landing_base_oscillation": -0.3,
                         "landing_joint_vel": -0.01,
-                        "gimbal_yaw_ang": -10.0,
+                        # "gimbal_yaw_ang": -10.0,
 
                     },
                 },
             },
             {
                 "name": "locomotion_rand",
-                "start_iteration": 4500,
+                "start_iteration": 3000,
                 "targets": {
                     "standing_reward": {"tracking_sigma": 0.02},
                     "domain_rand": {"strength": 0.4},
@@ -201,10 +205,10 @@ def _curriculum_cfg() -> dict:
                     },
                     "command_ranges": {
                         "standing_probability": 0.25,
-                        "lin_vel_range": [-3.0, 3.0],
-                        "ang_vel_range": [-5.0, 5.0],
+                        "lin_vel_range": [-0.50, 0.50],
+                        "ang_vel_range": [-10.0, 10.0],
                         "base_height_range": [0.20, 0.36],
-                        "gimbal_yaw_vel_range": [0.0, 0.0],
+                        "gimbal_yaw_vel_range": [-0.4, 0.4],
 
                     },
                     "tracking_gate": {
@@ -217,16 +221,18 @@ def _curriculum_cfg() -> dict:
                     "reward_scales": {
                         "standing_drift": -3.0,
                         "joint_vel": -0.01,
-                        "wheel_action_rate": -1.5,
+                        "wheel_action_rate": -1.0,
                         "leg_action_rate": -0.15,
-                        "gimbal_yaw_ang": -10.0,
+                        # "gimbal_yaw_ang": -10.0,
+                        "gimbal_spin_track_lin_vel_yaw_frame": -15.0,
+                        "gimbal_spin_heading_error":-20.0
 
                     },
                 },
             },
             {
                 "name": "full_range",
-                "start_iteration": 7000,
+                "start_iteration": 5000,
                 "targets": {
                     "domain_rand": {"strength": 1.0},
                     "sensor_noise": {"strength": 1.0},
@@ -239,11 +245,10 @@ def _curriculum_cfg() -> dict:
                     },
                     "command_ranges": {
                         "standing_probability": 0.25,
-                        "lin_vel_range": [-3.7, 3.7],
-                        "ang_vel_range": [-6.0, 6.0],
+                        "lin_vel_range": [-0.75, 0.75],
+                        "ang_vel_range": [-11.0, 11.0],
                         "base_height_range": [0.20, 0.36],
-                        "gimbal_yaw_vel_range": [0.0, 0.0],
-
+                        "gimbal_yaw_vel_range": [-0.4, 0.4],
                     },
                     "reward_scales": {},
                 },
