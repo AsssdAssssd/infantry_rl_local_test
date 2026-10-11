@@ -22,7 +22,6 @@ import torch
 from ..locomotion.env import LocomotionEnv
 from .rewards import RotateRewards
 
-GIMBAL_JOINT = "gimbal_yaw_joint"
 
 
 def _wrap(angle: torch.Tensor) -> torch.Tensor:
@@ -44,12 +43,14 @@ class RotateEnv(RotateRewards, LocomotionEnv):
         show_viewer=False,
     ):
         # 父类 __init__ 末尾会 reset，而 reset 会调用子类 hook，所以先把云台状态准备好。
-        self.gimbal_joint_names: tuple[str, ...] = tuple(env_cfg.get("gimbal_joint_names", (GIMBAL_JOINT,)))
-        if len(self.gimbal_joint_names) != 1:
+        self.gimbal_joint_names: tuple[str, ...] = tuple(env_cfg.get("gimbal_joint_names"))
+        if len(self.gimbal_joint_names) != 2:
             raise ValueError("rotate currently supports exactly one gimbal yaw joint")
         self.gimbal_joint_ang_scale = float(env_cfg.get("gimbal_joint_ang_scale", math.pi))
         self.gimbal_dof_idx: Optional[torch.Tensor] = None
-        self.gimbal_joint_index = int(env_cfg["joint_names"].index(self.gimbal_joint_names[0]))
+        self.gimbal_yaw_joint_index = int(env_cfg["joint_names"].index(self.gimbal_joint_names[0]))
+        self.gimbal_pitch_joint_index = int(env_cfg["joint_names"].index(self.gimbal_joint_names[1]))
+
 
         device = gs.device
         self.gimbal_ang = torch.zeros((num_envs,), dtype=gs.tc_float, device=device)
@@ -69,7 +70,7 @@ class RotateEnv(RotateRewards, LocomotionEnv):
         )
 
         # 机器人已建好，拿云台 DOF 索引。
-        self.gimbal_dof_idx = self._joint_dof_indices(self.gimbal_joint_names)
+        self.gimbal_dof_idx = self._joint_dof_indices(self.gimbal_joint_names) #2
 
     # ============ 命令管道：从 3 维扩到 4 维（追加云台速率） ============
 
@@ -109,23 +110,25 @@ class RotateEnv(RotateRewards, LocomotionEnv):
         if self.gimbal_dof_idx is None:
             return
         exec_actions = self.last_actions if self.simulate_action_latency else self.actions
-        world_target = exec_actions[:, self.gimbal_joint_index] * self.gimbal_joint_ang_scale
+        world_target = exec_actions[:, self.gimbal_yaw_joint_index] * self.gimbal_joint_ang_scale
         # 世界朝向最短路径误差 → 加到当前（未 wrap 的）关节角上，避免 ±π 处 2π 跳变
         err = _wrap(world_target - self.gimbal_world_yaw)
         joint_target = (self.gimbal_ang + err).unsqueeze(-1)
-        self.robot.control_dofs_position(joint_target, self.gimbal_dof_idx)
+        pitch_joint_keep = torch.full((self.num_envs,1),math.radians(-20.0),dtype=gs.tc_float,device=gs.device)
+
+        self.robot.control_dofs_position(torch.cat([joint_target,pitch_joint_keep],dim=-1), self.gimbal_dof_idx)
 
     def _update_task_state(self):
         """更新云台关节角、世界朝向与积分参考角；在奖励计算前调用。"""
         if self.gimbal_dof_idx is None:
             return
-        self.gimbal_ang.copy_(self.joint_pos[:, self.gimbal_joint_index])
+        self.gimbal_ang.copy_(self.joint_pos[:, self.gimbal_yaw_joint_index])
         base_yaw = torch.deg2rad(self.base_euler[:, 2])
         self.gimbal_world_yaw.copy_(_wrap(base_yaw + self.gimbal_ang))
         # 参考角按“云台世界 yaw 速率”命令积分；command=0 时保持不变。
         self.gimbal_yaw_ref.copy_(_wrap(self.gimbal_yaw_ref + self.commands[:, 3] * self.dt))
         self.gimbal_yaw_abs_vel.copy_(
-            self.robot.get_ang()[:, 2] + self.joint_vel[:, self.gimbal_joint_index]
+            self.robot.get_ang()[:, 2] + self.joint_vel[:, self.gimbal_yaw_joint_index]
         )
 
     def _reset_task_buffers(self, env_idx):

@@ -15,7 +15,8 @@ from copy import deepcopy
 
 from ..locomotion.config_locomotion import get_cfgs as get_locomotion_cfgs
 
-GIMBAL_JOINT = "gimbal_yaw_joint"
+GIMBAL_YAW_JOINT = "gimbal_yaw_joint"
+GIMBAL_PITCH_JOINT="gimbal_pitch_joint"
 
 
 def get_cfgs(locomotion_cfgs=None):
@@ -30,13 +31,18 @@ def get_cfgs(locomotion_cfgs=None):
     # curriculum_cfg = deepcopy(locomotion_cfgs[4])
 
     # ---------- 机器人：换成带 yaw 关节的模型 ----------
-    env_cfg["num_actions"] = 7
-    env_cfg["num_joints"] = 5
+    # TODO 加入pitch，先不给控制，就是让他稳定到平头
+    env_cfg["num_actions"] = 8
+    env_cfg["num_joints"] = 6
     env_cfg["robot_mjcf"] = "assets/robot/wheelbipeV14_2_yaw_joint/mjcf/wheelbipeV14_2.xml"
-    env_cfg["gimbal_joint_names"] = [GIMBAL_JOINT] #可惜这个模型没有pitch倒是
-    if GIMBAL_JOINT not in env_cfg["joint_names"]:
-        env_cfg["joint_names"] = [*env_cfg["joint_names"], GIMBAL_JOINT]
-    env_cfg["default_joint_pos"][GIMBAL_JOINT] = 0.0
+    env_cfg["gimbal_joint_names"] = [GIMBAL_YAW_JOINT,GIMBAL_PITCH_JOINT] #可惜这个模型没有pitch倒是
+    if GIMBAL_YAW_JOINT not in env_cfg["joint_names"]:
+        env_cfg["joint_names"] = [*env_cfg["joint_names"], GIMBAL_YAW_JOINT]
+    if GIMBAL_PITCH_JOINT not in env_cfg["joint_names"]:
+            env_cfg["joint_names"] = [*env_cfg["joint_names"], GIMBAL_PITCH_JOINT]
+    env_cfg["default_joint_pos"][GIMBAL_YAW_JOINT] = 0.0
+    env_cfg["default_joint_pos"][GIMBAL_PITCH_JOINT] = 0.0
+
 
     # actor 输出的云台“世界 yaw 目标”的物理量程：action(-1,1) * scale
     env_cfg["gimbal_joint_ang_scale"] = math.pi
@@ -45,12 +51,15 @@ def get_cfgs(locomotion_cfgs=None):
     obs_cfg["obs_scales"]["gimbal_yaw_angle"] = 1.0 / math.pi # TODO 后续如果变化的比较大，可以换成2唯，不会跳变
     obs_cfg["obs_scales"]["gimbal_yaw_vel"] = 1.0 / math.pi
 
+    obs_cfg["obs_scales"]["gimbal_pitch_angle"] = 1.0 / math.pi
+
     # ---------- 命令：追加云台速率 ----------
     command_cfg["num_commands"] = 4
     command_cfg["gimbal_yaw_vel_range"] = [-1.0, 1.0] #TODO 这里其他的参数还是原来的，但小陀螺差异比较大，后面记得显示更改
 
     # ---------- 奖励 ----------
     reward_cfg["reward_scales"]["gimbal_yaw_ang"] = -10.0
+    # reward_cfg["reward_scales"]["gimbal_pitch_ang"] = -2.0
 
     # ---------- 课程：每阶段补上云台命令范围与奖励权重；默认锁 0 ----------
     #TODO 我认为还是覆盖一个比较好，课程差异还是比较大的

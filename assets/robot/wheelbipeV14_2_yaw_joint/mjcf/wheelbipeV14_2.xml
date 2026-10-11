@@ -56,6 +56,8 @@
         <inertial pos="-0.032712 0.039683 0.102088" mass="1.1135894" fullinertia="0.0115811 0.0131184 0.0083629 0.0022103 0.0053499 -0.0031031" />
         <geom name="gimbal_yaw_link_visual" pos="0 0 0" quat="1 0 0 0" material="default_material" type="mesh" mesh="gimbal_yaw_link.STL" class="visual" />
         <body name="gimbal_pitch_link" pos="-0.058485 -0.0553 0.18" quat="1 0 0 0">
+          <joint name="gimbal_pitch_joint" type="hinge" ref="0.0" class="motor" axis="0 1 0" damping="0.05" frictionloss="0.05" armature="0.01" />
+          
           <site name="gimbal_pitch_joint_site" pos="0 0 0" quat="1 0 0 0" />
           <inertial pos="0.077937 0.022206 -0.043928" mass="2.9094813" fullinertia="0.0152198 0.019075 0.0180859 -0.0020655 0.0058831 0.001189" />
           <geom name="gimbal_pitch_link_collision" pos="0.1222416 0.0276848 -0.0553651" quat="0.974370054158 0 0.224951100374 0" type="box" size="0.175 0.1 0.0912243" class="collision" />
@@ -196,6 +198,8 @@
 
   <actuator>
     <motor name="gimbal_yaw_joint_ctrl" joint="gimbal_yaw_joint" class="motor" forcelimited="true" forcerange="-8 8" />
+    <motor name="gimbal_pitch_joint_ctrl" joint="gimbal_pitch_joint" class="motor" forcelimited="true" forcerange="-8 8" />
+
     <motor name="left_front1_joint_ctrl" joint="left_front1_joint" class="motor" forcelimited="true" forcerange="-54 54" />
     <motor name="left_rear1_joint_ctrl" joint="left_rear1_joint" class="motor" forcelimited="true" forcerange="-54 54" />
     <motor name="left_wheel_joint_ctrl" joint="left_wheel_joint" class="motor" forcelimited="true" forcerange="-5 5" />
