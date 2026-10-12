@@ -9,13 +9,15 @@ from .base import TerrainGeometry
 
 PRESET = "square_wave"
 PARAMETER_KEY = "square_wave"
-PARAMETERS = dict(height=0.05, high_length=1.50, low_length=1.50, base_thickness=0.10)
+PARAMETERS = dict(height=0.05, high_length=0.50, low_length=0.50, base_thickness=0.10)
 LEVELS = {
-    0: {"height": 0.02},
-    1: {"height": 0.03},
-    2: {"height": 0.04},
-    3: {"height": 0.045},
-    4: {"height": 0.05},
+    0: {"height": 0.020},
+    1: {"height": 0.025},
+    2: {"height": 0.030},
+    3: {"height": 0.035},
+    4: {"height": 0.040},
+    5: {"height": 0.045},
+    6: {"height": 0.050},
 }
 
 
@@ -28,6 +30,8 @@ class SquareWave(TerrainGeometry):
                 raise ValueError(f"square_wave.{name} must be positive and finite")
             setattr(self, name, value)
         self.period = self.high_length + self.low_length
+        # 从高平台中央出生，经过下沿、下一完整高平台，再落到低平台。
+        self.traversal_end = self.period + self.high_length / 2
         # x=0 位于高平台中央，沿 +x 首先下台阶。
         half_x, half_y = (size / 2 for size in self.tile_size)
         boxes = [((-half_x, -half_y, -self.base_thickness), (half_x, half_y, 0.))]

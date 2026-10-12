@@ -1,8 +1,8 @@
-"""复用 RSL-RL checkpoint 的 infos 保存地形成功率窗口与等级。"""
+"""复用 RSL-RL checkpoint 的 infos 保存各任务成功率窗口与等级。"""
 
 
-def terrain_runner_class(base):
-    class TerrainRunner(base):
+def task_runner_class(base):
+    class TaskRunner(base):
         def save(self, path, infos=None):
             infos = dict(infos or {})
             infos["terrain_curriculum"] = self.env.terrain_state_dict()
@@ -15,4 +15,4 @@ def terrain_runner_class(base):
                 self.env._pending_terrain_state = (infos or {}).get("terrain_curriculum")
             return infos
 
-    return TerrainRunner
+    return TaskRunner

@@ -23,8 +23,8 @@ from ...core.sensor_randomization import SensorRandomizationManager
 from ...core.tof import GenesisToF, ToFHistory, ToFSamplingClock, resolve_tof_cfg
 from ...core.kinematics import compute_leg_angle, compute_leg_length, constrain_leg_targets
 from ...core.tensor_utils import as_gain_tensor, as_range_tensors, sample_uniform
-from ...terrains.manager import make_terrain
-from ...terrains.mixture import MixedTerrain
+from ...terrains.manager import TerrainManager
+from ...terrains.registry import TERRAIN_REGISTRY
 from ...terrains.curriculum import TerrainCourse, merge_terrain_config, terrain_course_configs
 from .rewards import LocomotionRewards
 from .tracking_gate import DEFAULT_TRACKING_GATE_CFG, merge_tracking_gate_config, smooth_gate
@@ -58,12 +58,13 @@ class LocomotionEnv(LocomotionRewards):
         self.env_cfg = env_cfg
         self.obs_cfg = obs_cfg
         self.reward_cfg = reward_cfg
+        self._init_terrain_reward_scales()
         self.command_cfg = command_cfg
         self.curriculum_cfg = {"enabled": False, "stages": []} if curriculum_cfg is None else curriculum_cfg
         self.steps_per_iteration = int(steps_per_iteration) # PPO runner 每采满 steps_per_iteration 个控制步完成一轮
         self.tracking_gate_cfg = {}
         self._apply_tracking_gate(reward_cfg.get("tracking_gate", DEFAULT_TRACKING_GATE_CFG))
-        self.terrain = make_terrain(env_cfg.get("terrain"))
+        self.terrain = TerrainManager(env_cfg.get("terrain"))
         # 记录 TerrainManager 补齐后的配置，保证课程、日志与运行状态一致。
         self.env_cfg["terrain"] = self.terrain.config
         self._terrain_base_config = deepcopy(self.terrain.config)
@@ -270,6 +271,7 @@ class LocomotionEnv(LocomotionRewards):
         self.curriculum.register_target("terrain", self._apply_terrain_curriculum)
         self.curriculum.register_target("domain_rand", self.domain_rand.apply_curriculum)
         self.curriculum.register_target("sensor_noise", self._apply_sensor_noise)
+        self._register_task_curriculum()
         if self.curriculum.update(0, force=True):
             print(f"[curriculum] stage={self.curriculum.current_stage_name} step=0")
 
@@ -450,11 +452,6 @@ class LocomotionEnv(LocomotionRewards):
         self.base_height = torch.empty_like(self.terrain_height)
         self.terrain_spawn_centers = torch.empty((self.num_envs, 2), dtype=gs.tc_float, device=gs.device)
         self.terrain_tile_index = torch.empty((self.num_envs,), dtype=torch.long, device=gs.device)
-        self._terrain_start_xy = torch.zeros((self.num_envs, 2), device=self.device)
-        self._terrain_episode_steps = torch.zeros(self.num_envs, device=self.device)
-        self._terrain_lin_error = torch.zeros(self.num_envs, device=self.device)
-        self._terrain_ang_error = torch.zeros(self.num_envs, device=self.device)
-        self._terrain_fallen = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
 
         # actor 可部署的 IMU/轮速观测，以及仅供诊断的速度估计量
         self.imu_lin_acc = torch.empty((self.num_envs, 3), dtype=gs.tc_float, device=gs.device)
@@ -575,7 +572,6 @@ class LocomotionEnv(LocomotionRewards):
     def reset(self):
         """重置全部并行环境并返回重置后的 actor/critic 观测。"""
         self._activate_pending_terrain()
-        self._restore_terrain_state()
         self._reset_idx()
         self._update_observations()
         return self.get_observations()
@@ -681,17 +677,15 @@ class LocomotionEnv(LocomotionRewards):
         self._update_task_state()
 
         ########### 判断终止 ###########
-        roll_out = torch.abs(self.base_euler[:, 0]) > self.env_cfg["termination_if_roll_greater_than"]
-        pitch_out = torch.abs(self.base_euler[:, 1]) > self.env_cfg["termination_if_pitch_greater_than"]
-        tilt_out = roll_out | pitch_out
+        tilt_out = self._tilt_failure()
         self.tilt_out_steps.copy_(torch.where(tilt_out, self.tilt_out_steps + 1, 0))
-        self.base_contact_steps.copy_(torch.where(self.base_contact > 0.5, self.base_contact_steps + 1, 0))
+        self.base_contact_steps.copy_(torch.where(self._base_contact_failure(), self.base_contact_steps + 1, 0))
         persistent_tilt = self.tilt_out_steps >= self.tilt_termination_steps
         if self.base_contact_termination_steps is None:
             persistent_base_contact = torch.zeros_like(self.base_contact, dtype=torch.bool)
         else:
             persistent_base_contact = self.base_contact_steps >= self.base_contact_termination_steps
-        time_out = self.episode_length_buf > self.max_episode_length
+        time_out = self._episode_timeout()
         # patch 接缝不属于任何一种训练地形，接近边界时按 timeout 重置并允许 bootstrap。
         terrain_out = self.terrain.out_of_bounds(self.base_pos[:, :2], self.terrain_spawn_centers)
         if self.terrain_course is not None:
@@ -703,7 +697,10 @@ class LocomotionEnv(LocomotionRewards):
         solver_error = self.scene.rigid_solver.get_error_envs_mask().bool()
 
         self.terminated_buf = persistent_tilt | persistent_base_contact | solver_error | self._task_termination()
-        self.reset_buf = self.terminated_buf | time_out
+        # 成功是终局而非失败：不发 death，也不作为 time_out bootstrap。
+        task_success = self._task_success() & ~self.terminated_buf
+        time_out &= ~(task_success | self.terminated_buf)
+        self.reset_buf = self.terminated_buf | time_out | task_success
 
         ########### 计算奖励 ###########
         self.reward_buf.zero_()
@@ -724,7 +721,7 @@ class LocomotionEnv(LocomotionRewards):
         self._accumulate_task_metrics()
 
         # 在指令重采样和阶段强制截断前评估真实结束回合。
-        self._record_terrain_outcomes()
+        self._record_task_outcomes()
 
         ########### 重采样指令 ###########
         self._resample_commands(self.episode_length_buf % self.resample_step == 0)
@@ -909,11 +906,6 @@ class LocomotionEnv(LocomotionRewards):
             self.target_wheel_vel.masked_fill_(env_idx[:, None], 0.0)
             self.episode_length_buf.masked_fill_(env_idx, 0)
 
-        self._terrain_start_xy[reset_env_ids] = reset_base_pos[:, :2]
-        self._terrain_episode_steps[reset_env_ids] = 0
-        self._terrain_lin_error[reset_env_ids] = 0
-        self._terrain_ang_error[reset_env_ids] = 0
-        self._terrain_fallen[reset_env_ids] = False
         self._update_encoder_measurements(reset_env_ids)
         self._reset_task_buffers(env_idx)
         if self.tof is not None:
@@ -939,8 +931,6 @@ class LocomotionEnv(LocomotionRewards):
             if self.curriculum.enabled:
                 self.extras["episode"]["curriculum_stage"] = torch.full_like(self.reward_buf[env_idx], float(self.curriculum.current_stage_index))
             self.extras["episode"]["episode_duration_s"] = finished_episode_lengths * self.dt
-            if isinstance(self.terrain, MixedTerrain):
-                self.extras["episode"].update(self.terrain.metrics())
         else:
             # 没有 episode 结束，就不要让 logger 收到虚假的零
             self.extras.pop("episode", None)
@@ -1014,11 +1004,19 @@ class LocomotionEnv(LocomotionRewards):
 
     def _resample_commands(self, envs_idx):
         """为全部环境采样指令，仅将选中行写回；None 表示全部写回。"""
-        commands = sample_uniform(*self.commands_limit, (self.num_envs,))
-        high_speed_cfg = self.command_cfg.get("high_speed_ang_vel")
+        commands = self._sample_commands(self.command_cfg, self.commands_limit)
+        if envs_idx is None:
+            self.commands.copy_(commands)
+        else:
+            torch.where(envs_idx[:, None], commands, self.commands, out=self.commands)
+
+    def _sample_commands(self, command_cfg, limits):
+        """按给定配置采样，不写回，供混合任务各自使用命令分布。"""
+        commands = sample_uniform(*limits, (self.num_envs,))
+        high_speed_cfg = command_cfg.get("high_speed_ang_vel")
         if high_speed_cfg is not None:
             # 按 |vx| 分档，在收紧后的范围内均匀采样，避免截断造成边界堆积。
-            lower, upper = self.commands_limit
+            lower, upper = limits
             limit = high_speed_cfg["max_abs_ang_vel"]
             high_speed_ang_vel = sample_uniform(
                 lower[1].clamp(min=-limit), upper[1].clamp(max=limit), (self.num_envs,)
@@ -1028,16 +1026,12 @@ class LocomotionEnv(LocomotionRewards):
                 high_speed_ang_vel,
                 commands[:, 1],
             )
-        standing_probability = self.command_cfg.get("standing_probability", 0.0)
+        standing_probability = command_cfg.get("standing_probability", 0.0)
         if standing_probability > 0.0:
             # 静止样本只清零 vx、wz，仍跟踪当前课程采样的机身高度。
             standing = torch.rand_like(commands[:, 0]) < standing_probability
             commands[:, :2].masked_fill_(standing[:, None], 0.0)
-        if envs_idx is None:
-            self.commands.copy_(commands)
-        else:
-            torch.where(envs_idx[:, None], commands, self.commands, out=self.commands)
-        return
+        return commands
 
     # ============ 控制与状态更新：控制发生在 scene.step 前，状态更新发生在其后 ============
     def _apply_gas_spring_compensation(self):
@@ -1198,12 +1192,13 @@ class LocomotionEnv(LocomotionRewards):
             device=self.device,
         )
 
-    def _build_command_limits(self):
+    def _build_command_limits(self, command_cfg=None):
         """构造 [vx, wz, base_height] 的采样上下限。"""
-        standing_probability = float(self.command_cfg.get("standing_probability", 0.0))
+        command_cfg = self.command_cfg if command_cfg is None else command_cfg
+        standing_probability = float(command_cfg.get("standing_probability", 0.0))
         if not math.isfinite(standing_probability) or not 0.0 <= standing_probability <= 1.0:
             raise ValueError("standing_probability must be finite and in [0, 1]")
-        high_speed_cfg = self.command_cfg.get("high_speed_ang_vel")
+        high_speed_cfg = command_cfg.get("high_speed_ang_vel")
         if high_speed_cfg is not None:
             threshold = float(high_speed_cfg["lin_vel_threshold"])
             limit = float(high_speed_cfg["max_abs_ang_vel"])
@@ -1211,15 +1206,15 @@ class LocomotionEnv(LocomotionRewards):
                 raise ValueError("high_speed_ang_vel.lin_vel_threshold must be finite and nonnegative")
             if not math.isfinite(limit) or limit < 0.0:
                 raise ValueError("high_speed_ang_vel.max_abs_ang_vel must be finite and nonnegative")
-            lower, upper = self.command_cfg["ang_vel_range"]
+            lower, upper = command_cfg["ang_vel_range"]
             if max(lower, -limit) > min(upper, limit):
                 raise ValueError("ang_vel_range must overlap the high-speed angular velocity limits")
         return tuple(
             torch.tensor(items, dtype=gs.tc_float, device=gs.device)
             for items in zip(
-                self.command_cfg["lin_vel_range"],
-                self.command_cfg["ang_vel_range"],
-                self.command_cfg["base_height_range"],
+                command_cfg["lin_vel_range"],
+                command_cfg["ang_vel_range"],
+                command_cfg["base_height_range"],
             )
         )
 
@@ -1244,7 +1239,35 @@ class LocomotionEnv(LocomotionRewards):
         self.commands_limit = self._build_command_limits()
 
     def _get_reward_scale(self, name):
+        if not getattr(self, "terrain_reward_scales", None):
+            return self.reward_scales[name]
+        overrides = self.terrain_reward_scales.get(self.terrain.preset, {})
+        if name in overrides:
+            return overrides[name] * (1.0 if name == "death" else self.dt)
         return self.reward_scales[name]
+
+    def _init_terrain_reward_scales(self):
+        """地形覆盖为绝对权重；未覆盖项沿用全局（含课程更新）权重。"""
+        overrides = self.reward_cfg.get("terrain_reward_scales", {})
+        if not isinstance(overrides, dict):
+            raise ValueError("terrain_reward_scales must be a mapping of terrain presets to reward scales")
+        normalized = {}
+        for preset, values in overrides.items():
+            if preset not in TERRAIN_REGISTRY:
+                raise ValueError(f"Unsupported reward terrain preset: {preset!r}")
+            if not isinstance(values, dict):
+                raise ValueError(f"terrain_reward_scales.{preset} must be a mapping")
+            normalized[preset] = {}
+            for name, value in values.items():
+                if name not in self.reward_cfg["reward_scales"]:
+                    raise ValueError(f"terrain_reward_scales.{preset}.{name} requires a default in reward_scales")
+                if not callable(getattr(self, "_reward_" + name, None)):
+                    raise ValueError(f"Unknown terrain reward: {name!r}")
+                scale = float(value)
+                if not math.isfinite(scale):
+                    raise ValueError(f"terrain_reward_scales.{preset}.{name} must be finite")
+                normalized[preset][name] = scale
+        self.terrain_reward_scales = normalized
 
     def _apply_reward_scales(self, values):
         """应用原始奖励权重；除死亡奖励外，运行时权重统一乘以 dt。"""
@@ -1353,48 +1376,6 @@ class LocomotionEnv(LocomotionRewards):
             # 同步运行时配置，便于日志和调试输出反映当前课程阶段。
             self.env_cfg[name] = [list(axis_limits) for axis_limits in limits]
 
-    def _record_terrain_outcomes(self):
-        if not isinstance(self.terrain, MixedTerrain):
-            return
-        options = self.terrain.config["adaptive"]
-        self._terrain_episode_steps += 1
-        self._terrain_lin_error += (self.base_lin_vel[:, 0] - self.commands[:, 0]).square()
-        self._terrain_ang_error += (self.base_ang_vel[:, 2] - self.commands[:, 1]).square()
-        self._terrain_fallen |= (self.base_euler[:, :2].abs() > options["max_tilt_deg"]).any(dim=-1) | (self.base_contact > .5)
-        # 切换课程而截断的回合不计入成功率；正常失败仍是失败样本。
-        if self._pending_terrain_index is not None:
-            return
-        ids = self.reset_buf.nonzero(as_tuple=False).flatten()
-        if ids.numel() == 0:
-            return
-        steps = self._terrain_episode_steps[ids].clamp_min(1)
-        distance = (self.base_pos[ids, :2] - self._terrain_start_xy[ids]).norm(dim=-1)
-        success = (
-            ~self.terminated_buf[ids] & ~self._terrain_fallen[ids]
-            & (steps * self.dt >= options["min_duration_s"])
-            & (distance >= options["min_distance"])
-            & (self._terrain_lin_error[ids] / steps <= options["max_lin_vel_rmse"] ** 2)
-            & (self._terrain_ang_error[ids] / steps <= options["max_ang_vel_rmse"] ** 2)
-        )
-        self.terrain.record(ids, self.terrain_tile_index[ids], success)
-
-    def terrain_state_dict(self):
-        terrains = self.terrain_course.terrains if self.terrain_course else [self.terrain]
-        return [{"config": deepcopy(t.config), "state": t.controller.state_dict()}
-                for t in terrains if isinstance(t, MixedTerrain)]
-
-    def _restore_terrain_state(self):
-        saved = getattr(self, "_pending_terrain_state", None)
-        if saved is None:
-            return
-        terrains = self.terrain_course.terrains if self.terrain_course else [self.terrain]
-        for record in saved:
-            matches = [t for t in terrains if isinstance(t, MixedTerrain) and t.config == record["config"]]
-            if not matches:
-                raise ValueError("saved terrain curriculum does not match; use --load-weights for a new terrain course")
-            matches[0].controller.load_state_dict(record["state"])
-        self._pending_terrain_state = None
-
     def _apply_terrain_curriculum(self, values):
         """初始化时应用几何；运行时排队到本控制步结束后切换。"""
         if not set(values).difference({"max_difficulty"}):
@@ -1405,7 +1386,7 @@ class LocomotionEnv(LocomotionRewards):
                 if config != self.terrain.config:
                     raise ValueError("Terrain changes must be declared in curriculum stages before scene construction")
                 return
-            self.terrain = make_terrain(config)
+            self.terrain = TerrainManager(config)
             self.env_cfg["terrain"] = self.terrain.config
             return
         try:
@@ -1479,6 +1460,28 @@ class LocomotionEnv(LocomotionRewards):
             trackball._n_target = lookat.copy()
 
     # ============ 子任务扩展点：由 jump 等子类覆盖；调用位置由 step / reset 固定 ============
+    def _register_task_curriculum(self):
+        """在第 0 阶段应用前注册任务课程。"""
+
+    def _base_contact_failure(self):
+        """子任务可豁免合法的机身支撑接触。"""
+        return self.base_contact > 0.5
+
+    def _tilt_failure(self):
+        return (
+            (self.base_euler[:, 0].abs() > self.env_cfg["termination_if_roll_greater_than"])
+            | (self.base_euler[:, 1].abs() > self.env_cfg["termination_if_pitch_greater_than"])
+        )
+
+    def _episode_timeout(self):
+        return self.episode_length_buf > self.max_episode_length
+
+    def _task_success(self):
+        return torch.zeros_like(self.episode_length_buf, dtype=torch.bool)
+
+    def _record_task_outcomes(self):
+        """任务可在回合结束、指令重采样前统计结果。"""
+
     def _initialize_task_buffers(self):
         """任务扩展点：在首次 reset 前分配额外 buffer。"""
 

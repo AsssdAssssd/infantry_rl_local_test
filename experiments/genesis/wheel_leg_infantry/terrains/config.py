@@ -32,9 +32,10 @@ def resolve_terrain_cfg(config: dict | None) -> dict:
     if not isinstance(raw, dict):
         raise TypeError("env_cfg['terrain'] must be a dictionary")
 
-    if raw.get("mixture") is not None:
-        from .mixture import resolve_mixture_cfg
-        return resolve_mixture_cfg(raw)
+    if raw.get("mixture") is not None or raw.get("adaptive") is not None or raw.get("preset") == "mixture":
+        raise ValueError("legacy mixture terrain was removed; use tasks.multi_terrain with --load-weights to migrate")
+    raw.pop("mixture", None)
+    raw.pop("adaptive", None)
 
     # 兼容旧 max_difficulty；新配置使用 difficulty。
     raw.pop("max_difficulty", None)

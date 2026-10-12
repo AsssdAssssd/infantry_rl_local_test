@@ -17,6 +17,7 @@ from ...tools.run_utils import (
 )
 from .config_common import get_final_command_cfg
 from .env import LocomotionEnv
+from .train import validate_locomotion_config
 from .interactive_viewer import KeyboardCommand, format_tensor
 
 
@@ -143,6 +144,7 @@ def main():
     checkpoint_path = resolve_checkpoint(run_dir, args.ckpt)
     configs = load_run_configs(run_dir)
     env_cfg = deepcopy(configs["env_cfg"])
+    validate_locomotion_config(env_cfg, configs["curriculum_cfg"])
     _apply_terrain_overrides(env_cfg, args)
     obs_cfg = deepcopy(configs["obs_cfg"])
     apply_randomization_arguments(env_cfg, obs_cfg, args)
@@ -151,6 +153,7 @@ def main():
     command_cfg = get_final_command_cfg(configs["command_cfg"], configs["curriculum_cfg"])
     train_cfg = configs["train_cfg"]
     reward_cfg["reward_scales"] = {}
+    reward_cfg["terrain_reward_scales"] = {}
 
     print(f"[eval] run:        {run_dir}")
     print(f"[eval] checkpoint: {checkpoint_path}")

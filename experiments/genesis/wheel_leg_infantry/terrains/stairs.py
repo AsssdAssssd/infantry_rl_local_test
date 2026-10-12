@@ -1,4 +1,4 @@
-"""下楼梯：高度单位 m；LEVELS 中未写的字段继承 PARAMETERS。"""
+"""下台阶：默认单级，高度单位 m；LEVELS 中未写的字段继承 PARAMETERS。"""
 
 import math
 
@@ -9,13 +9,11 @@ from .base import TerrainGeometry
 
 PRESET = "stairs"
 PARAMETER_KEY = "box_stairs"
-PARAMETERS = dict(step_depth=2.0, step_height=0.20, num_steps=4, approach_length=1.0, base_thickness=0.10)
+PARAMETERS = dict(step_depth=2.0, step_height=0.20, num_steps=1, approach_length=0.8, base_thickness=0.10)
 LEVELS = {
-    0: {"step_height": 0.04},
-    1: {"step_height": 0.08},
-    2: {"step_height": 0.12},
-    3: {"step_height": 0.16}, 
-    4: {"step_height": 0.20},
+    0: {"step_height": 0.15},
+    1: {"step_height": 0.20},
+    2: {"step_height": 0.25},
 }
 
 
@@ -24,6 +22,7 @@ class Stairs(TerrainGeometry):
         super().__init__(parameters, tile_size, horizontal_scale, boundary_margin=boundary_margin)
         self._configure(parameters)
         self.boxes = self._box_bounds()
+        self.traversal_end = self.start_x + (self.num_steps - 1) * self.step_depth
 
     def _configure(self, parameters):
         self.step_depth = float(parameters["step_depth"])
