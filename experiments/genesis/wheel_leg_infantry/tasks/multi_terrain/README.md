@@ -233,6 +233,15 @@ def _get_curriculum_cfg():
 再次接触台下地面就当拍按失败终止，无需先登上台面；落到上台面不会触发此失败。
 同拍失败时不发离地正奖励。
 
+`stairs_up_landing_distance=10`：任一轮第一次真实接触顶部台面时，按接触点沿 +x 距台阶入口边缘
+的水平距离（m）乘权重发奖，不乘 `dt`。例如首次落点深入台面 10 cm 得 +1，30 cm 得 +3；
+距离越大奖励越大，不作额外饱和截断，落点必须位于平台赛道范围内。
+使用 Genesis 真实轮子接触点，要求向上受力、接触高度距台面 ≤15 mm、法向竖直分量绝对值 ≥0.9；
+baselink 搭台、侧壁和台下地面接触不算。单轮先落台就立即发放，不等另一轮或稳定站立；
+同拍多个轮/接触点触台时取离入口边缘最近的一个距离。
+即使第一次恰好触到边缘得到 0，也会锁存本回合机会；之后滚动前进、另一轮落台或弹起重落均不补奖。
+同拍失败时不发该正奖励，部分 reset 仅清空所选环境的落点记录。
+
 以下两个事件同样不乘 `dt`，每回合各最多发放一次：
 
 - `stairs_up_support=10`：baselink 的真实接触点进入顶部台面至少 10 cm，接触点高度距台面不超过
@@ -247,10 +256,11 @@ def _get_curriculum_cfg():
 部分环境 reset 只清空对应回合的状态；同拍失败时不发上述正奖励。
 
 TensorBoard 新增 `task/stairs_up/support_reached`、`task/stairs_up/retract_reached`、
-`task/stairs_up/takeoff_reached` 回合到达率，
+`task/stairs_up/takeoff_reached`、`task/stairs_up/first_landing_reached` 回合到达率，
+以及 `task/stairs_up/first_landing_distance_m` 首次轮子触台距离（未触台回合记为 0），
 其中 `retract_reached` 表示落台前两腿都曾达到目标缩短量，
 以及 `reward_stairs_up_support`、`reward_stairs_up_retract`、`reward_stairs_up_approach_lift`、
-`reward_stairs_up_backswing`、`reward_stairs_up_takeoff` 奖励统计。
+`reward_stairs_up_backswing`、`reward_stairs_up_takeoff`、`reward_stairs_up_landing_distance` 奖励统计。
 
 使用当前任务配比开启新训练（保留其他已启用任务及 locomotion）：
 

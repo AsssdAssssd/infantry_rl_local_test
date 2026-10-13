@@ -14,7 +14,7 @@ from .terrain import TaskTerrain
 
 class MultiTerrainEnv(MultiTerrainRewards, LocomotionEnv):
     EVENT_REWARDS = {"task_progress", "task_success", "death", "stairs_up_support", "stairs_up_retract",
-                     "stairs_up_takeoff", "stairs_up_approach_lift", "stairs_up_backswing"}
+                     "stairs_up_takeoff", "stairs_up_landing_distance", "stairs_up_approach_lift", "stairs_up_backswing"}
 
     def __init__(self, num_envs, env_cfg, obs_cfg, reward_cfg, command_cfg, *, evaluation=False, **kwargs):
         self.tasks = resolve_tasks(env_cfg["multi_terrain"], require_locomotion=not evaluation)
@@ -173,6 +173,7 @@ class MultiTerrainEnv(MultiTerrainRewards, LocomotionEnv):
         state.fallen_off |= state.task_mask & state.takeoff_awarded & lower_contact.any(dim=1)
         self._update_stairs_up_approach(cfg, lower_contact.all(dim=1))
         contacts = self.robot.get_contacts(exclude_self_contact=True)
+        self._update_stairs_up_landing_distance(contacts, cfg)
         # Genesis 的接触 link 索引是全场景索引；base_link_idx 是机器人局部索引。
         base_link = self.robot.link_start + self.base_link_idx
         is_a = contacts["link_a"] == base_link
@@ -233,6 +234,36 @@ class MultiTerrainEnv(MultiTerrainRewards, LocomotionEnv):
         standing = state.task_mask & self.success & quiet & (self.base_height >= cfg["standing_height_m"])
         state.success_steps.copy_(torch.where(standing, state.success_steps + 1, 0))
         self.success &= ~state.task_mask | (state.success_steps >= cfg["success_steps"])
+
+    def _update_stairs_up_landing_distance(self, contacts, cfg):
+        """第一次任一轮真实触台时，按接触点距台阶入口沿的水平距离发一次奖励。"""
+        state = self.stairs_up_buffers
+        state.landing_distance_event.zero_()
+        if contacts["valid_mask"].shape[1] == 0:
+            return
+        wheel_links = torch.as_tensor(self.wheel_links_idx, device=self.device) + self.robot.link_start
+        is_a = (contacts["link_a"][..., None] == wheel_links).any(dim=-1)
+        is_b = (contacts["link_b"][..., None] == wheel_links).any(dim=-1)
+        force_z = torch.where(is_a, contacts["force_a"][..., 2], contacts["force_b"][..., 2])
+        position = contacts["position"]
+        local_x = position[..., 0] - self.terrain_spawn_centers[:, :1]
+        local_y = position[..., 1] - self.terrain_spawn_centers[:, 1:2]
+        distance = local_x - self._value("obstacle_end")[:, None]
+        on_top = (
+            contacts["valid_mask"] & (is_a | is_b) & (force_z > 0)
+            & (distance >= 0) & (local_x <= self._value("max_x")[:, None])
+            & (local_y.abs() <= self._value("corridor_half_width")[:, None])
+            & ((position[..., 2] - cfg["top_height"][:, None]).abs()
+               <= cfg["support_surface_tolerance_m"][:, None])
+            & (contacts["normal"][..., 2].abs() >= cfg["support_normal_z"][:, None])
+        )
+        first = state.task_mask & on_top.any(dim=1) & ~state.first_landing_seen
+        # 同拍多个轮/接触点落台时取最近沿的落点，避免用较远轮掩盖贴沿落地。
+        nearest = torch.where(on_top, distance, torch.inf).amin(dim=1)
+        state.landing_distance_event.copy_(torch.where(first, nearest, 0))
+        state.first_landing_distance.copy_(torch.where(first, nearest, state.first_landing_distance))
+        # 即使第一次恰好落在边沿（距离为 0），也必须锁存，后续滚动不能补领。
+        state.first_landing_seen |= first
 
     def _stairs_up_lower_contact(self, wheels, cfg):
         """逐轮确认台下地面接触，排除台面、腾空和立面上的高处接触。"""
@@ -373,6 +404,8 @@ class MultiTerrainEnv(MultiTerrainRewards, LocomotionEnv):
                         metrics[f"task/{name}/support_reached"] = state.support_awarded[mask].float()
                         metrics[f"task/{name}/retract_reached"] = state.retract_awarded[mask].float()
                         metrics[f"task/{name}/takeoff_reached"] = state.takeoff_awarded[mask].float()
+                        metrics[f"task/{name}/first_landing_reached"] = state.first_landing_seen[mask].float()
+                        metrics[f"task/{name}/first_landing_distance_m"] = state.first_landing_distance[mask]
                     if name == "locomotion":
                         mse = self.locomotion_buffers.tracking_errors[mask] / self.task_steps[mask].clamp_min(1)[:, None]
                         for j, key in enumerate(("lin_vel", "ang_vel", "height")):

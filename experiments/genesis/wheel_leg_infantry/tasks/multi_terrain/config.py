@@ -194,7 +194,7 @@ def get_cfgs():
             num_commands=3,
             lin_vel_range=[1.0, 2.5],
             ang_vel_range=[0.0, 0.0],
-            base_height_range=[0.32, 0.36],
+            base_height_range=[0.31, 0.31],
             standing_probability=0.0,
         ),
         rewards=dict(
@@ -203,11 +203,12 @@ def get_cfgs():
             stairs_up_support=10.0,
             stairs_up_retract=10.0,
             stairs_up_takeoff=10.0,  # 双轮首次离开台下地面，一回合只奖励一次。
+            stairs_up_landing_distance=10.0,  # 首轮触台距离奖励，单位为奖励/m，仅首次触台发放。
             stairs_up_approach_lift=10.0,
             stairs_up_backswing=10.0,
             task_lateral=-2.0,
             task_heading=-0.5,
-            base_balance=-10.0,
+            base_balance=-20.0,
             joint_vel=-0.001,
             wheel_action_rate=-0.05,
             leg_action_rate=-0.02,

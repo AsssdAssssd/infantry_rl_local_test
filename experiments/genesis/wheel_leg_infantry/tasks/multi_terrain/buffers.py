@@ -65,7 +65,7 @@ class StairsDownBuffers:
 
 @dataclass
 class StairsUpBuffers:
-    """上台阶：台面接触后的收腿进度、首次双轮落台及站立确认窗口。"""
+    """上台阶：触台收腿进度、首次轮子落点、双轮落台及站立确认窗口。"""
 
     task_mask: torch.Tensor
     tables: dict
@@ -81,6 +81,9 @@ class StairsUpBuffers:
     takeoff_event: torch.Tensor
     retract_progress: torch.Tensor
     wheels_landed: torch.Tensor
+    first_landing_seen: torch.Tensor
+    first_landing_distance: torch.Tensor
+    landing_distance_event: torch.Tensor
     fallen_off: torch.Tensor
     approach_start_height: torch.Tensor
     approach_peak_height: torch.Tensor
@@ -137,6 +140,9 @@ class StairsUpBuffers:
             takeoff_awarded=torch.zeros_like(mask), takeoff_event=torch.zeros_like(mask),
             retract_progress=torch.zeros_like(env.base_height),
             wheels_landed=torch.zeros_like(mask), fallen_off=torch.zeros_like(mask),
+            first_landing_seen=torch.zeros_like(mask),
+            first_landing_distance=torch.zeros_like(env.base_height),
+            landing_distance_event=torch.zeros_like(env.base_height),
             approach_start_height=torch.zeros_like(env.base_height),
             approach_peak_height=torch.zeros_like(env.base_height),
             approach_lift_progress=torch.zeros_like(env.base_height),
@@ -167,6 +173,9 @@ class StairsUpBuffers:
         self.takeoff_event[ids] = False
         self.retract_progress[ids] = 0
         self.wheels_landed[ids] = False
+        self.first_landing_seen[ids] = False
+        self.first_landing_distance[ids] = 0
+        self.landing_distance_event[ids] = 0
         self.fallen_off[ids] = False
         self.approach_start_height[ids] = 0
         self.approach_peak_height[ids] = 0

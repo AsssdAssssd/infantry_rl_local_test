@@ -20,6 +20,9 @@ class MultiTerrainRewards:
     def _reward_stairs_up_takeoff(self):
         return self.stairs_up_buffers.takeoff_event & ~self.terminated_buf
 
+    def _reward_stairs_up_landing_distance(self):
+        return self.stairs_up_buffers.landing_distance_event * ~self.terminated_buf
+
     def _reward_stairs_up_approach_lift(self):
         return self.stairs_up_buffers.approach_lift_progress * ~self.terminated_buf
 

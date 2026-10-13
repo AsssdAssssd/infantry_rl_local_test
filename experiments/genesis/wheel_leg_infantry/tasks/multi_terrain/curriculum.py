@@ -128,7 +128,8 @@ def validate_stage(name, stage):
         raise ValueError("ascent.support_normal_z must be <= 1")
     if ascent.get("backswing_angle_deg", 20.0) >= 90:
         raise ValueError("ascent.backswing_angle_deg must be < 90")
-    for key in ("stairs_up_support", "stairs_up_retract", "stairs_up_takeoff", "stairs_up_approach_lift", "stairs_up_backswing"):
+    for key in ("stairs_up_support", "stairs_up_retract", "stairs_up_takeoff", "stairs_up_landing_distance",
+                "stairs_up_approach_lift", "stairs_up_backswing"):
         scale = stage["rewards"].get(key, 0.0)
         if scale < 0 or (scale != 0 and (name != "stairs_up" or stage["terrain"]["preset"] != "stairs_up")):
             raise ValueError(f"{key} requires stairs_up on stairs_up terrain and a nonnegative weight")
