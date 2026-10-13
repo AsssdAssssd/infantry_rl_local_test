@@ -4,7 +4,49 @@ from ..locomotion.config_locomotion import get_cfgs as locomotion_cfgs
 from ..locomotion.config_common import get_final_command_cfg
 from ...terrains.registry import level_catalog
 
-TASK_NAMES = ("locomotion", "stairs_down", "stairs_up", "slope_up", "slope_down", "rough", "square_wave")
+TASK_NAMES = ("locomotion", "stairs_down", "stairs_up", "slope_up", "slope_down", "rough", "square_wave", "platform_ridge")
+
+
+def _get_curriculum_cfg():
+    """按阶段配置随机化、传感器噪声与任务权重"""
+    return {
+        "enabled": True,
+        "stages": [
+            {
+                "name": "clean",
+                "start_iteration": 0,
+                "targets": {
+                    "domain_rand": {"strength": 0.0},
+                    "sensor_noise": {"strength": 0.0},
+                    "task_weights": {
+                        "platform_ridge": 0.0,
+                    },
+                },
+            },
+            {
+                "name": "randomized",
+                "start_iteration": 2000,
+                "targets": {
+                    "domain_rand": {"strength": 0.4},
+                    "sensor_noise": {"strength": 0.4},
+                    "task_weights": {
+                        "square_wave": 0.0,
+                        "platform_ridge": 1.0,
+                        "stairs_down": 0.5,
+                        "slope_down": 0.5,
+                    },
+                },
+            },
+            {
+                "name": "full",
+                "start_iteration": 3000,
+                "targets": {
+                    "domain_rand": {"strength": 1.0},
+                    "sensor_noise": {"strength": 1.0},
+                },
+            },
+        ],
+    }
 
 
 def get_cfgs():
@@ -45,8 +87,8 @@ def get_cfgs():
             leg_symmetry_bonus=1.0,
             base_height=-10.0,
             height_gate=10.0,
-            joint_vel=-0.01,
-            wheel_action_rate=-1.5,
+            joint_vel=-0.02,
+            wheel_action_rate=-2.0,
             leg_action_rate=-0.15,
             landing_base_oscillation=-0.3,
             landing_joint_vel=-0.01,
@@ -146,30 +188,28 @@ def get_cfgs():
 
     # 上台阶
     tasks["stairs_up"] = dict(
-        enabled=False,
+        enabled=True,
         weight=1.0,
         commands=dict(
             num_commands=3,
             lin_vel_range=[1.0, 2.5],
             ang_vel_range=[0.0, 0.0],
-            base_height_range=[0.22, 0.36],
+            base_height_range=[0.32, 0.36],
             standing_probability=0.0,
         ),
         rewards=dict(
-            tracking_lin_vel=-2.0,
-            tracking_ang_vel=-3.0,
-            gated_tracking_lin_vel=5.0,
-            gated_tracking_ang_vel=7.0,
             task_progress=5.0,
             task_success=20.0,
+            stairs_up_support=10.0,
+            stairs_up_retract=10.0,
+            stairs_up_approach_lift=5.0,
+            stairs_up_backswing=20.0,
             task_lateral=-2.0,
             task_heading=-0.5,
-            base_balance=-20.0,
-            leg_angle_limits=-5.0,
+            base_balance=-10.0,
             joint_vel=-0.001,
             wheel_action_rate=-0.05,
             leg_action_rate=-0.02,
-            base_contact=-1.0,
             death=-10.0,
         ),
         resampling_time_s=10.0,
@@ -177,10 +217,10 @@ def get_cfgs():
         traversal=dict(landing_length=0.8),
         termination=dict(
             episode_length_s=10.0,
-            termination_if_roll_greater_than=10.0,
-            termination_if_pitch_greater_than=10.0,
+            termination_if_roll_greater_than=70.0,
+            termination_if_pitch_greater_than=70.0,
             tilt_termination_duration_s=0.3,
-            base_contact_termination_duration_s=0.5,
+            base_contact_termination_duration_s=10.0,
             corridor_half_width=1.0,
             stall_timeout_s=5.0,
             progress_epsilon=0.01,
@@ -190,6 +230,23 @@ def get_cfgs():
             max_pitch_deg=10.0,
             wheel_clearance_m=0.15,
             wheel_surface_tolerance_m=0.08,
+        ),
+        ascent=dict(
+            approach_distance_m=0.35,
+            approach_clearance_m=0.01,  # 底盘碰撞体下底面高出台阶顶面的余量。
+            backswing_angle_deg=20.0,  # 正腿角为向后摆，低于当前 30° 摆角限幅。
+            support_duration_s=0.10,
+            support_force_n=5.0,
+            support_normal_z=0.9,
+            support_surface_tolerance_m=0.015,
+            support_margin_m=0.1,
+            retract_shortening_m=0.05,
+            wheel_edge_margin_m=0.01,
+            wheel_bottom_tolerance_m=0.005,
+            success_duration_s=0.20,
+            standing_height_m=0.20,
+            max_vertical_speed_m_s=0.3,
+            max_roll_pitch_speed_rad_s=1.5,
         ),
         # 难度参数读取 terrains 对应模块的 LEVELS；None 表示使用最高已定义等级。
         curriculum=dict(
@@ -380,7 +437,6 @@ def get_cfgs():
         ),
     )
 
-    # 方波路面
     tasks["square_wave"] = dict(
         enabled=True,
         weight=1.0,
@@ -410,7 +466,7 @@ def get_cfgs():
         ),
         resampling_time_s=10.0,
         terrain=dict(preset="square_wave", tile_size=[16.0, 6.0]),
-        traversal=dict(landing_length=0.2),
+        traversal=dict(landing_length=0.8),
         termination=dict(
             episode_length_s=10.0,
             termination_if_roll_greater_than=10.0,
@@ -438,16 +494,65 @@ def get_cfgs():
             demote_threshold=0.2,
         ),
     )
+    # 后期凸台任务：从第二平台朝 -x 越过窄凸台，再经第一平台下到地面。
+    # enabled 控制是否构建；全局课程 task_weights 控制何时分配训练环境。
+    tasks["platform_ridge"] = dict(
+        enabled=True,
+        weight=1.0,
+        commands=dict(
+            num_commands=3,
+            lin_vel_range=[0.5, 1.5],
+            ang_vel_range=[0.0, 0.0],
+            base_height_range=[0.20, 0.30],
+            standing_probability=0.0,
+        ),
+        rewards=dict(
+            tracking_lin_vel=-2.0,
+            tracking_ang_vel=-3.0,
+            gated_tracking_lin_vel=5.0,
+            gated_tracking_ang_vel=7.0,
+            task_progress=5.0,
+            task_success=20.0,
+            task_lateral=-2.0,
+            task_heading=-0.5,
+            base_balance=-2.0,
+            joint_vel=-0.001,
+            wheel_action_rate=-0.05,
+            leg_action_rate=-0.02,
+            base_contact=-1.0,
+            death=-10.0,
+        ),
+        resampling_time_s=10.0,
+        terrain=dict(preset="platform_ridge", tile_size=[16.0, 6.0]),
+        traversal=dict(landing_length=0.8),
+        termination=dict(
+            episode_length_s=15.0,
+            termination_if_roll_greater_than=45.0,
+            termination_if_pitch_greater_than=45.0,
+            tilt_termination_duration_s=0.3,
+            base_contact_termination_duration_s=0.5,
+            corridor_half_width=1.0,
+            stall_timeout_s=5.0,
+            progress_epsilon=0.01,
+        ),
+        success=dict(
+            max_roll_deg=10.0,
+            max_pitch_deg=10.0,
+            wheel_clearance_m=0.15,
+            wheel_surface_tolerance_m=0.08,
+        ),
+        curriculum=dict(
+            enabled=True,
+            difficulty=0,
+            min_difficulty=0,
+            max_difficulty=None,
+            window_episodes=100,
+            promote_threshold=0.95,
+            demote_threshold=0.2,
+        ),
+    )
     env["multi_terrain"] = dict(tasks=tasks, level_catalog=level_catalog())
     env.update(episode_length_s=25.0, resampling_time_s=0.01, base_init_pos_range=[[-0.03, 0.03], [-0.03, 0.03], [0.22, 0.22]])
     # 仅注册奖励函数，实际系数按各环境本回合所处的任务/课程阶段查表。
     reward["reward_scales"] = dict.fromkeys(set().union(*(task["rewards"] for task in tasks.values())), 0.0)
-    curriculum = dict(
-        enabled=True,
-        stages=[
-            dict(name="clean", start_iteration=0, targets=dict(domain_rand=dict(strength=0.0), sensor_noise=dict(strength=0.0))),
-            dict(name="randomized", start_iteration=5000, targets=dict(domain_rand=dict(strength=0.4), sensor_noise=dict(strength=0.4))),
-            dict(name="full", start_iteration=10000, targets=dict(domain_rand=dict(strength=1.0), sensor_noise=dict(strength=1.0))),
-        ],
-    )
-    return env, obs, reward, commands, curriculum
+    return env, obs, reward, commands, _get_curriculum_cfg()

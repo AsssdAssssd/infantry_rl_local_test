@@ -25,6 +25,9 @@ class PlatformRidge(TerrainGeometry):
     def __init__(self, parameters, tile_size, horizontal_scale=0.1, *, boundary_margin=None):
         super().__init__(parameters, tile_size, horizontal_scale, boundary_margin=boundary_margin)
         self.boxes = self._box_bounds(parameters)
+        self.travel_direction = -1.0
+        # 朝 -x 完成凸台及第一平台后，最后一道台阶是第一平台的左沿。
+        self.traversal_end = self.boxes[1][0][0]
 
     def _box_bounds(self, parameters):
         """三个连续、无重叠的固定箱体，避免高度场把 15 cm 窄凸台插值成斜坡。"""

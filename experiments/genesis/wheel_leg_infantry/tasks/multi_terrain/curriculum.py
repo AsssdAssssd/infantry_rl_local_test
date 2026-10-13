@@ -3,7 +3,7 @@
 from copy import deepcopy
 import math
 
-from ...core.curriculum import _deep_update
+from ...core.curriculum import CurriculumManager, _deep_update
 from ...terrains.config import resolve_terrain_cfg
 from ...terrains.registry import TERRAIN_REGISTRY, level_catalog, level_parameters
 from .config import TASK_NAMES
@@ -58,7 +58,7 @@ def resolve_tasks(config, *, require_locomotion=True):
             level_parameters(preset, level, catalog)  # 包括范围中间的等级，不能静默跳过缺级。
             override = overrides.get(level, {})
             if not isinstance(override, dict) or set(override) - {
-                "commands", "rewards", "termination", "success", "resampling_time_s", "tracking_success", "landing_stability"
+                "commands", "rewards", "termination", "success", "resampling_time_s", "tracking_success", "landing_stability", "ascent"
             }:
                 raise ValueError(f"{name}: difficulty overrides only support task behavior, not terrain geometry")
             _deep_update(current, override)
@@ -109,6 +109,28 @@ def validate_stage(name, stage):
     landing_scale = stage["rewards"].get("stairs_down_landing_stability", 0.0)
     if landing_scale > 0 or (landing_scale != 0 and (name != "stairs_down" or stage["terrain"]["preset"] != "stairs")):
         raise ValueError("stairs_down_landing_stability requires stairs_down on stairs and a nonpositive weight")
+    ascent = stage.get("ascent", {})
+    ascent_keys = {
+        "approach_distance_m", "approach_clearance_m",
+        "backswing_angle_deg",
+        "support_duration_s", "support_force_n", "support_normal_z", "support_surface_tolerance_m",
+        "support_margin_m", "retract_shortening_m", "wheel_edge_margin_m", "wheel_bottom_tolerance_m",
+        "success_duration_s", "standing_height_m", "max_vertical_speed_m_s", "max_roll_pitch_speed_rad_s",
+    }
+    if not isinstance(ascent, dict) or set(ascent) - ascent_keys:
+        raise ValueError(f"{name}: invalid ascent options")
+    if ascent and (name != "stairs_up" or stage["terrain"]["preset"] != "stairs_up"):
+        raise ValueError("ascent requires stairs_up on stairs_up terrain")
+    for key, value in ascent.items():
+        positive(value, f"{name}.ascent.{key}")
+    if ascent.get("support_normal_z", 0.9) > 1:
+        raise ValueError("ascent.support_normal_z must be <= 1")
+    if ascent.get("backswing_angle_deg", 20.0) >= 90:
+        raise ValueError("ascent.backswing_angle_deg must be < 90")
+    for key in ("stairs_up_support", "stairs_up_retract", "stairs_up_approach_lift", "stairs_up_backswing"):
+        scale = stage["rewards"].get(key, 0.0)
+        if scale < 0 or (scale != 0 and (name != "stairs_up" or stage["terrain"]["preset"] != "stairs_up")):
+            raise ValueError(f"{key} requires stairs_up on stairs_up terrain and a nonnegative weight")
     if name != "locomotion":
         if stage["terrain"]["preset"] == "plane":
             raise ValueError(f"{name}: traversal task requires a non-plane terrain")
@@ -128,19 +150,51 @@ def validate_stage(name, stage):
             positive(value, f"{name}.tracking_success.{key}")
 
 
-def allocate_counts(tasks, num_envs):
+def allocate_counts(tasks, num_envs, weights=None):
     """最大余数分配；避免静默舍弃比重过小的已启用任务。"""
     if type(num_envs) is not int or num_envs < 1:
         raise ValueError("num_envs must be a positive integer")
-    total = sum(task["weight"] for task in tasks.values())
-    quotas = [num_envs * task["weight"] / total for task in tasks.values()]
+    weights = {} if weights is None else weights
+    if not isinstance(weights, dict) or set(weights) - set(TASK_NAMES):
+        raise ValueError("task_weights must map known task names to weights")
+    for value in weights.values():
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0:
+            raise ValueError("task_weights must be finite and nonnegative")
+    # enabled=False / 初始 weight=0 的任务未构建，课程不能重新启用它们。
+    values = [weights.get(name, task["weight"]) for name, task in tasks.items()]
+    if "locomotion" in tasks and values[list(tasks).index("locomotion")] <= 0:
+        raise ValueError("task_weights must retain locomotion with positive weight")
+    total = sum(values)
+    if total <= 0:
+        raise ValueError("task_weights must retain at least one task")
+    quotas = [num_envs * value / total for value in values]
     counts = [math.floor(q) for q in quotas]
     order = sorted(range(len(counts)), key=lambda i: quotas[i] - counts[i], reverse=True)
     for i in order[:num_envs - sum(counts)]:
         counts[i] += 1
-    if any(n == 0 for n in counts):
+    if any(n == 0 and value > 0 for n, value in zip(counts, values)):
         raise ValueError("num_envs is too small for the task weights; increase it or disable tasks")
     return counts
+
+
+def initial_task_counts(tasks, num_envs, curriculum_cfg=None):
+    """场景构建前校验全部阶段配额，返回第 0 轮的任务分配。"""
+    curriculum = CurriculumManager(curriculum_cfg)
+    initial = allocate_counts(tasks, num_envs)
+    allowed_targets = {"domain_rand", "sensor_noise", "task_weights"}
+    weights = {}
+    for stage in curriculum.stages:
+        targets = stage.get("targets", {})
+        if set(targets) - allowed_targets:
+            raise ValueError("multi_terrain global curriculum only controls domain_rand/sensor_noise/task_weights")
+        changes = targets.get("task_weights", {})
+        if not isinstance(changes, dict):
+            raise ValueError("task_weights must map known task names to weights")
+        weights.update(changes)
+        counts = allocate_counts(tasks, num_envs, weights)
+        if curriculum.enabled and stage["start_iteration"] == 0:
+            initial = counts
+    return initial
 
 
 class TaskCurriculum:

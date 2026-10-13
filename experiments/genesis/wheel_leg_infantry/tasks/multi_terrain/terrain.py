@@ -14,6 +14,7 @@ class TaskTrack:
         self.kind = name
         self.terrain = TerrainManager(stage["terrain"])
         self.geometry = self.terrain.geometry
+        self.direction = getattr(self.geometry, "travel_direction", 1.0)
         self.tile_size = self.terrain.tile_size
         self.boundary_margin = self.terrain.config["boundary_margin"]
         if self.boundary_margin is None:
@@ -23,7 +24,7 @@ class TaskTrack:
             return
         traversal = stage["traversal"]
         positive(traversal["landing_length"], "traversal.landing_length")
-        # 台阶/坡/方波的末端由真实几何提供；连续随机地面由 task 指定通行距离。
+        # 台阶/坡的末端由真实几何提供；连续随机地面由 task 指定通行距离。
         self.obstacle_end = getattr(self.geometry, "traversal_end", None)
         if self.obstacle_end is None:
             self.obstacle_end = traversal.get("distance")
@@ -32,11 +33,9 @@ class TaskTrack:
         elif "distance" in traversal:
             raise ValueError(f"{name}: traversal.distance cannot replace the geometry's obstacle end")
         positive(self.obstacle_end, "obstacle_end")
-        self.goal_x = self.obstacle_end + traversal["landing_length"]
-        if self.goal_x + max(0.5, self.boundary_margin) >= self.tile_size[0] / 2 or self.tile_size[1] / 2 <= 1.0:
+        self.goal_x = self.obstacle_end + self.direction * traversal["landing_length"]
+        if abs(self.goal_x) + max(0.5, self.boundary_margin) >= self.tile_size[0] / 2 or self.tile_size[1] / 2 <= 1.0:
             raise ValueError("track needs safe finish and lateral margins within tile_size")
-        if self.terrain.preset == "square_wave" and traversal["landing_length"] + 0.25 >= self.geometry.low_length:
-            raise ValueError("square_wave finish must remain on the low platform")
 
     def height_at(self, xy):
         return self.terrain.height_at(xy)
@@ -69,9 +68,19 @@ class TaskTerrain(TerrainPatches):
         super().bind_entity(entity, device=device, dtype=dtype)
         self.fixed_types = torch.repeat_interleave(torch.arange(len(self.tasks), device=device),
                                                   torch.tensor(self.counts, device=device))
+        self.target_types = self.fixed_types.clone()
         self.assignment_epoch = torch.zeros_like(self.fixed_types)
 
+    def set_counts(self, counts):
+        """阶段切换只更新目标分组，实际任务在各环境下一次 reset 时变更。"""
+        self.counts = list(counts)
+        if hasattr(self, "target_types"):
+            self.target_types.copy_(torch.repeat_interleave(
+                torch.arange(len(self.tasks), device=self.target_types.device),
+                self.target_types.new_tensor(counts)))
+
     def sample_spawn_tiles(self, env_ids):
+        self.fixed_types[env_ids] = self.target_types[env_ids]
         types = self.fixed_types[env_ids]
         selected = torch.tensor([self.lookup[i, level] for i, level in enumerate(self.controller.levels)], device=env_ids.device)
         tiles = selected[types]

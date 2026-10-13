@@ -11,11 +11,23 @@ class MultiTerrainRewards:
     def _reward_task_success(self):
         return self.success * ~self.terminated_buf
 
+    def _reward_stairs_up_support(self):
+        return self.stairs_up_buffers.support_event & ~self.terminated_buf
+
+    def _reward_stairs_up_retract(self):
+        return self.stairs_up_buffers.retract_event & ~self.terminated_buf
+
+    def _reward_stairs_up_approach_lift(self):
+        return self.stairs_up_buffers.approach_lift_progress * ~self.terminated_buf
+
+    def _reward_stairs_up_backswing(self):
+        return self.stairs_up_buffers.backswing_progress * ~self.terminated_buf
+
     def _reward_task_lateral(self):
         return (self.base_pos[:, 1] - self.terrain_spawn_centers[:, 1]).square()
 
     def _reward_task_heading(self):
-        return 1 - torch.cos(torch.deg2rad(self.base_euler[:, 2]))
+        return 1 - torch.cos(torch.deg2rad(self.base_euler[:, 2])) * self._value("direction")
 
     def _reward_stairs_down_landing_stability(self):
         """下台阶后的振荡代价，配置负权重；不惩罚水平前进或 yaw 转动。"""

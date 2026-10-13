@@ -12,7 +12,7 @@ from ...tools.run_utils import (add_resume_arguments, create_versioned_run_dir, 
                                load_run_configs, resolve_resume_plan, restore_training_state, save_run_artifacts)
 from .runner import task_runner_class
 from .config import get_cfgs
-from .curriculum import allocate_counts, resolve_tasks
+from .curriculum import initial_task_counts, resolve_tasks
 from .env import MultiTerrainEnv
 
 
@@ -20,7 +20,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description="Task-driven multi-terrain training; edit multi_terrain/config.py for per-task settings")
     parser.add_argument("-e", "--exp_name", default="multi_terrain_v1")
     parser.add_argument("-B", "--num_envs", type=int, default=1024)
-    parser.add_argument("--max_iterations", type=int, default=15001)
+    parser.add_argument("--max_iterations", type=int, default=25001)
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--log-root", default="logs")
     parser.add_argument("-v", "--vis", action="store_true")
@@ -50,7 +50,7 @@ def main(argv=None):
     apply_randomization_arguments(env_cfg, obs_cfg, args)
     try:
         tasks = resolve_tasks(env_cfg["multi_terrain"])
-        counts = allocate_counts(tasks, args.num_envs)
+        counts = initial_task_counts(tasks, args.num_envs, configs["curriculum_cfg"])
     except ValueError as exc:
         parser.error(str(exc))
     for (name, task), count in zip(tasks.items(), counts):
