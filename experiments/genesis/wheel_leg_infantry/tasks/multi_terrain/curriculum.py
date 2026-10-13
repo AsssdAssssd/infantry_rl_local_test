@@ -116,6 +116,7 @@ def validate_stage(name, stage):
         "support_duration_s", "support_force_n", "support_normal_z", "support_surface_tolerance_m",
         "support_margin_m", "retract_shortening_m", "wheel_edge_margin_m", "wheel_bottom_tolerance_m",
         "fall_height_tolerance_m",
+        "wall_normal_z_max", "wall_surface_tolerance_m",
         "success_duration_s", "standing_height_m", "max_vertical_speed_m_s", "max_roll_pitch_speed_rad_s",
     }
     if not isinstance(ascent, dict) or set(ascent) - ascent_keys:
@@ -126,6 +127,8 @@ def validate_stage(name, stage):
         positive(value, f"{name}.ascent.{key}")
     if ascent.get("support_normal_z", 0.9) > 1:
         raise ValueError("ascent.support_normal_z must be <= 1")
+    if ascent.get("wall_normal_z_max", 0.3) >= 1:
+        raise ValueError("ascent.wall_normal_z_max must be < 1")
     if ascent.get("backswing_angle_deg", 20.0) >= 90:
         raise ValueError("ascent.backswing_angle_deg must be < 90")
     for key in ("stairs_up_support", "stairs_up_retract", "stairs_up_takeoff", "stairs_up_landing_distance",
@@ -133,6 +136,9 @@ def validate_stage(name, stage):
         scale = stage["rewards"].get(key, 0.0)
         if scale < 0 or (scale != 0 and (name != "stairs_up" or stage["terrain"]["preset"] != "stairs_up")):
             raise ValueError(f"{key} requires stairs_up on stairs_up terrain and a nonnegative weight")
+    wall_scale = stage["rewards"].get("stairs_up_wheel_wall_force", 0.0)
+    if wall_scale > 0 or (wall_scale != 0 and (name != "stairs_up" or stage["terrain"]["preset"] != "stairs_up")):
+        raise ValueError("stairs_up_wheel_wall_force requires stairs_up on stairs_up terrain and a nonpositive weight")
     if name != "locomotion":
         if stage["terrain"]["preset"] == "plane":
             raise ValueError(f"{name}: traversal task requires a non-plane terrain")

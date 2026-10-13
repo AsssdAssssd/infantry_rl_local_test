@@ -201,11 +201,12 @@ def get_cfgs():
             task_progress=10.0,
             task_success=20.0,
             stairs_up_support=10.0,
-            stairs_up_retract=10.0,
+            stairs_up_retract=20.0,
             stairs_up_takeoff=10.0,  # 双轮首次离开台下地面，一回合只奖励一次。
             stairs_up_landing_distance=10.0,  # 首轮触台距离奖励，单位为奖励/m，仅首次触台发放。
+            stairs_up_wheel_wall_force=-0.2,  # 轮子撞立面的法向力总和（N），按 dt 积分。
             stairs_up_approach_lift=10.0,
-            stairs_up_backswing=10.0,
+            stairs_up_backswing=30.0,
             task_lateral=-2.0,
             task_heading=-0.5,
             base_balance=-20.0,
@@ -246,6 +247,8 @@ def get_cfgs():
             wheel_edge_margin_m=0.01,
             wheel_bottom_tolerance_m=0.005,
             fall_height_tolerance_m=0.03,  # 双轮落台后，任一轮底低于台面此距离即失败。
+            wall_normal_z_max=0.3,  # 接触法向近似水平，区分立面和台面/地面。
+            wall_surface_tolerance_m=0.015,
             success_duration_s=0.20,
             standing_height_m=0.20,
             max_vertical_speed_m_s=0.3,
@@ -506,7 +509,7 @@ def get_cfgs():
         weight=1.0,
         commands=dict(
             num_commands=3,
-            lin_vel_range=[0.5, 1.5],
+            lin_vel_range=[0.5, 2.5],
             ang_vel_range=[0.0, 0.0],
             base_height_range=[0.20, 0.30],
             standing_probability=0.0,

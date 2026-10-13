@@ -174,6 +174,7 @@ class MultiTerrainEnv(MultiTerrainRewards, LocomotionEnv):
         self._update_stairs_up_approach(cfg, lower_contact.all(dim=1))
         contacts = self.robot.get_contacts(exclude_self_contact=True)
         self._update_stairs_up_landing_distance(contacts, cfg)
+        self._update_stairs_up_wheel_wall_force(contacts, cfg)
         # Genesis 的接触 link 索引是全场景索引；base_link_idx 是机器人局部索引。
         base_link = self.robot.link_start + self.base_link_idx
         is_a = contacts["link_a"] == base_link
@@ -264,6 +265,30 @@ class MultiTerrainEnv(MultiTerrainRewards, LocomotionEnv):
         state.first_landing_distance.copy_(torch.where(first, nearest, state.first_landing_distance))
         # 即使第一次恰好落在边沿（距离为 0），也必须锁存，后续滚动不能补领。
         state.first_landing_seen |= first
+
+    def _update_stairs_up_wheel_wall_force(self, contacts, cfg):
+        """只累计轮子与台阶竖直立面的法向接触力，排除台面支撑及切向摩擦。"""
+        state = self.stairs_up_buffers
+        wheel_links = torch.as_tensor(self.wheel_links_idx, device=self.device) + self.robot.link_start
+        is_a = (contacts["link_a"][..., None] == wheel_links).any(dim=-1)
+        is_b = (contacts["link_b"][..., None] == wheel_links).any(dim=-1)
+        force = torch.where(is_a[..., None], contacts["force_a"], contacts["force_b"])
+        position = contacts["position"]
+        local_x = position[..., 0] - self.terrain_spawn_centers[:, :1]
+        local_y = position[..., 1] - self.terrain_spawn_centers[:, 1:2]
+        tolerance = cfg["wall_surface_tolerance_m"][:, None]
+        on_wall = (
+            contacts["valid_mask"] & (is_a | is_b)
+            & (contacts["normal"][..., 2].abs() <= cfg["wall_normal_z_max"][:, None])
+            & (local_x >= cfg["approach_edge"][:, None] - tolerance)
+            & (local_x <= self._value("obstacle_end")[:, None] + tolerance)
+            & (local_y.abs() <= self._value("corridor_half_width")[:, None])
+            & (position[..., 2] >= cfg["lower_height"][:, None] - tolerance)
+            & (position[..., 2] <= cfg["top_height"][:, None] + tolerance)
+        )
+        # 逐接触点投影后求和，双轮/多个接触点的力不会因方向相反而抵消。
+        normal_force = (force * contacts["normal"]).sum(dim=-1).abs()
+        state.wheel_wall_force.copy_(torch.where(on_wall, normal_force, 0).sum(dim=1) * state.task_mask)
 
     def _stairs_up_lower_contact(self, wheels, cfg):
         """逐轮确认台下地面接触，排除台面、腾空和立面上的高处接触。"""

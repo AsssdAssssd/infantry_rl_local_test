@@ -23,6 +23,10 @@ class MultiTerrainRewards:
     def _reward_stairs_up_landing_distance(self):
         return self.stairs_up_buffers.landing_distance_event * ~self.terminated_buf
 
+    def _reward_stairs_up_wheel_wall_force(self):
+        # 失败当拍仍计入碰撞代价；此连续惩罚由 reward_tables 乘 dt。
+        return self.stairs_up_buffers.wheel_wall_force
+
     def _reward_stairs_up_approach_lift(self):
         return self.stairs_up_buffers.approach_lift_progress * ~self.terminated_buf
 

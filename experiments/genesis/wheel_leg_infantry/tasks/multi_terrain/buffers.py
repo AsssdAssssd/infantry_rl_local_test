@@ -84,6 +84,7 @@ class StairsUpBuffers:
     first_landing_seen: torch.Tensor
     first_landing_distance: torch.Tensor
     landing_distance_event: torch.Tensor
+    wheel_wall_force: torch.Tensor
     fallen_off: torch.Tensor
     approach_start_height: torch.Tensor
     approach_peak_height: torch.Tensor
@@ -104,6 +105,7 @@ class StairsUpBuffers:
             support_surface_tolerance_m=0.015, support_margin_m=0.005,
             retract_shortening_m=0.02, wheel_edge_margin_m=0.01, wheel_bottom_tolerance_m=0.005,
             fall_height_tolerance_m=0.03,
+            wall_normal_z_max=0.3, wall_surface_tolerance_m=0.015,
             success_duration_s=0.20, standing_height_m=0.20,
             max_vertical_speed_m_s=0.3, max_roll_pitch_speed_rad_s=1.5,
         )
@@ -143,6 +145,7 @@ class StairsUpBuffers:
             first_landing_seen=torch.zeros_like(mask),
             first_landing_distance=torch.zeros_like(env.base_height),
             landing_distance_event=torch.zeros_like(env.base_height),
+            wheel_wall_force=torch.zeros_like(env.base_height),
             approach_start_height=torch.zeros_like(env.base_height),
             approach_peak_height=torch.zeros_like(env.base_height),
             approach_lift_progress=torch.zeros_like(env.base_height),
@@ -176,6 +179,7 @@ class StairsUpBuffers:
         self.first_landing_seen[ids] = False
         self.first_landing_distance[ids] = 0
         self.landing_distance_event[ids] = 0
+        self.wheel_wall_force[ids] = 0
         self.fallen_off[ids] = False
         self.approach_start_height[ids] = 0
         self.approach_peak_height[ids] = 0

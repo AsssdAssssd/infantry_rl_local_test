@@ -11,13 +11,13 @@ PRESET = "platform_ridge"
 PARAMETER_KEY = "platform_ridge"
 PARAMETERS = dict(first_height=0.20, first_length=0.80, ridge_height=0.35,
                   ridge_width=0.15, second_height=0.30, second_length=None,
-                  approach_length=1.0, base_thickness=0.10)
+                  approach_length=0.6, base_thickness=0.10)
 LEVELS = {
-    0: dict(second_height=0.34, approach_length=1.0),
-    1: dict(second_height=0.33, approach_length=1.0),
-    2: dict(second_height=0.32, approach_length=1.0),
-    3: dict(second_height=0.31, approach_length=1.0),
-    4: dict(second_height=0.30, approach_length=1.0),
+    0: dict(second_height=0.34, approach_length=0.6),
+    1: dict(second_height=0.33, approach_length=0.6),
+    2: dict(second_height=0.32, approach_length=0.6),
+    3: dict(second_height=0.31, approach_length=0.6),
+    4: dict(second_height=0.30, approach_length=0.6),
 }
 
 

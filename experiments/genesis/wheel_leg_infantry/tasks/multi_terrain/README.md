@@ -255,12 +255,24 @@ baselink 搭台、侧壁和台下地面接触不算。单轮先落台就立即�
 水平前进速度不受此稳定门限限制。窗口中断会重新计时，已发奖励不会因失去接触或倒车重发。
 部分环境 reset 只清空对应回合的状态；同拍失败时不发上述正奖励。
 
+`stairs_up_wheel_wall_force=-0.05`：持续惩罚轮子撞台阶竖直立面的法向接触力。
+逐接触点取 `abs(轮子受力 · 接触法向)`，将双轮所有有效立面接触的力相加（N），
+每拍奖励为 `-0.05 × 法向力总和 × dt`；例如总力 100 N 持续 0.1 s，累计扣 0.5。
+只作用于 `stairs_up`，不要求已搭台或已离地，失败当拍仍计入惩罚。
+
+立面判定要求接触属于轮子、位于台阶起始沿至末沿的 x 范围及台下地面至顶部台面的高度范围，
+位置容差为 `wall_surface_tolerance_m=0.015 m`，且处于任务走廊内。
+接触法向需近似水平：`abs(normal_z) <= wall_normal_z_max=0.3`。
+台面/地面的竖直支撑接触、机身/腿部接触和沿立面的切向摩擦不计入；
+离开接触后惩罚立即清零，部分 reset 仅清空所选环境的力状态。
+
 TensorBoard 新增 `task/stairs_up/support_reached`、`task/stairs_up/retract_reached`、
 `task/stairs_up/takeoff_reached`、`task/stairs_up/first_landing_reached` 回合到达率，
 以及 `task/stairs_up/first_landing_distance_m` 首次轮子触台距离（未触台回合记为 0），
 其中 `retract_reached` 表示落台前两腿都曾达到目标缩短量，
 以及 `reward_stairs_up_support`、`reward_stairs_up_retract`、`reward_stairs_up_approach_lift`、
-`reward_stairs_up_backswing`、`reward_stairs_up_takeoff`、`reward_stairs_up_landing_distance` 奖励统计。
+`reward_stairs_up_backswing`、`reward_stairs_up_takeoff`、`reward_stairs_up_landing_distance`、
+`reward_stairs_up_wheel_wall_force` 奖励统计。
 
 使用当前任务配比开启新训练（保留其他已启用任务及 locomotion）：
 
