@@ -182,7 +182,7 @@ def _get_curriculum_cfg():
 
 ### 上台阶三阶段奖励
 
-`stairs_up` 在现有水平进度奖励之外增加靠近时抬升、搭接前后摆的增量奖励和两个事件奖励。
+`stairs_up` 在现有水平进度奖励之外增加靠近时抬升、搭接前后摆、触台后缩腿的增量奖励，以及稳定搭台事件奖励。
 参数集中在 `config.py` 的 `tasks["stairs_up"]["ascent"]`。
 
 `stairs_up_approach_lift=2`：机体原点在第一级台阶前 `approach_distance_m=0.35 m` 内，
@@ -212,25 +212,45 @@ def _get_curriculum_cfg():
 不等待搭接奖励的 5 N 支撑力、搭接深度或 0.10 s 稳定时间；仅碰侧壁不会锁存台面接触。
 此项只提供奖励引导，不直接修改动作，也不要求最终成功必须完成后摆。
 
-以下三个事件也不乘 `dt`，每回合各最多发放一次：
+`stairs_up_retract` 在 baselink 首次真实接触台面（向上力 >0）时记录左右腿长，随后对每条腿
+相对该基准的新增缩短量发奖，无需等待稳定搭接奖励、轮子越沿或水平前进。
+每腿进度为 `clamp((触台时腿长 − 当前腿长) / retract_shortening_m, 0, 1)`；
+只奖励超过该腿历史最高进度的增量，两腿取平均后乘奖励权重，不乘 `dt`。
+当前 `retract_shortening_m=0.05 m`、权重为 10，因此左右腿各缩短 5 cm 时累计最多 +10；
+保持腿长、反复伸缩不能重复领奖，首次触台之前的缩短量不补奖。
 
-- `stairs_up_support=5`：baselink 的真实接触点进入顶部台面至少 10 cm，接触点高度距台面不超过
+双轮第一次同时落在顶部台面，当拍即永久关闭该回合缩腿奖励，不等稳定站立或最终成功。
+判定要求双轮都有接触、轮心进入台面至少 `wheel_edge_margin_m=0.01 m`、位于赛道范围内，
+且轮底距顶部台面不超过 `wheel_bottom_tolerance_m=0.005 m`；单轮落台、腾空越沿均不触发。
+双轮落台后，任一轮底低于台面超过 `fall_height_tolerance_m=0.03 m` 就当拍按失败终止，
+无需等待落到下方地面或停滞超时；向上弹跳不会触发，也不会重启缩腿奖励。
+即使没有 baselink 搭台、直接双轮登台，跌台终止也生效。
+
+`stairs_up_takeoff=10`：本回合确认双轮都曾接触台下地面后，双轮轮底第一次同时高出台下地面
+`wheel_bottom_tolerance_m=0.005 m` 就发放一次 +10，不乘 `dt`，不要求 baselink 已搭台。
+单轮抬起或只有接触信号消失不发奖；轮子离地后抵住立面仍可触发。
+空中出生不会直接领奖，需先实际双轮接触台下地面。离地状态锁存至 reset，之后任一轮
+再次接触台下地面就当拍按失败终止，无需先登上台面；落到上台面不会触发此失败。
+同拍失败时不发离地正奖励。
+
+以下两个事件同样不乘 `dt`，每回合各最多发放一次：
+
+- `stairs_up_support=10`：baselink 的真实接触点进入顶部台面至少 10 cm，接触点高度距台面不超过
   15 mm，接触法向竖直分量绝对值 ≥0.9，向上支撑力合计 ≥5 N，并连续稳定支撑 0.10 s。
   侧壁、低处地面、腿/轮接触和瞬间撞击不计入。
-- `stairs_up_retract=5`：已获得有效底盘支撑后，两腿相对本次支撑窗口开始时均缩短至少 5 cm；
-  双轮后缘越过立面至少 1 cm，轮底不低于台面超过 5 mm，且仍处于平台赛道范围内。
-  无需双轮已经落地，也无需该拍产生新的水平位移。这里只奖励越沿结果，不增加单独的收腿控制阶段。
 - `task_success=20`：保留到达上平台终点、双轮越沿并接地、底盘脱离接触、roll/pitch 各不超过 10°
   的条件；底盘离台面高度还需 ≥0.20 m，并连续稳定站立 0.20 s。直接登上台阶也可以成功，
-  不强制先领取两个中间奖励。
+  不强制先领取搭台或缩腿奖励。
 
 支撑和站立窗口均要求竖直速度 ≤0.3 m/s、roll/pitch 角速度合范数 ≤1.5 rad/s；
 水平前进速度不受此稳定门限限制。窗口中断会重新计时，已发奖励不会因失去接触或倒车重发。
-部分环境 reset 只清空对应回合的状态；同拍失败时不发这三个正奖励。
+部分环境 reset 只清空对应回合的状态；同拍失败时不发上述正奖励。
 
-TensorBoard 新增 `task/stairs_up/support_reached`、`task/stairs_up/retract_reached` 回合到达率，
+TensorBoard 新增 `task/stairs_up/support_reached`、`task/stairs_up/retract_reached`、
+`task/stairs_up/takeoff_reached` 回合到达率，
+其中 `retract_reached` 表示落台前两腿都曾达到目标缩短量，
 以及 `reward_stairs_up_support`、`reward_stairs_up_retract`、`reward_stairs_up_approach_lift`、
-`reward_stairs_up_backswing` 奖励统计。
+`reward_stairs_up_backswing`、`reward_stairs_up_takeoff` 奖励统计。
 
 使用当前任务配比开启新训练（保留其他已启用任务及 locomotion）：
 
@@ -264,7 +284,7 @@ landing_stability=dict(duration_s=0.3, ang_vel_weight=0.25),
 任务专用奖励函数集中在 `rewards.py`。任务专用 buffer 集中在 `buffers.py`，
 每个任务各有一个类，按固定参数表、回合状态分组，并在同一类中实现 `create()` 和 `reset()`。
 目前 `LocomotionBuffers` 保存跟踪误差，`StairsDownBuffers` 保存落地触发状态、剩余步数和窗口开关，
-`StairsUpBuffers` 保存支撑/站立计时、支撑起始腿长和一次性奖励状态。
+`StairsUpBuffers` 保存支撑/站立计时、首次触台腿长、缩腿最高进度、台下接地/离地、双轮首次落台及跌台状态。
 `env.py` 按相同任务顺序调用创建、更新和重置；部分重置只清空选中环境，不清空其他回合或固定参数表。
 
 到终点且双轮已越过最后障碍、落地接触正常、无机身接触、姿态合格时，结束并发成功奖励；

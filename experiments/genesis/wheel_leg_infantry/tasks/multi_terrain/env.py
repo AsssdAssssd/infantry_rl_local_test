@@ -14,7 +14,7 @@ from .terrain import TaskTerrain
 
 class MultiTerrainEnv(MultiTerrainRewards, LocomotionEnv):
     EVENT_REWARDS = {"task_progress", "task_success", "death", "stairs_up_support", "stairs_up_retract",
-                     "stairs_up_approach_lift", "stairs_up_backswing"}
+                     "stairs_up_takeoff", "stairs_up_approach_lift", "stairs_up_backswing"}
 
     def __init__(self, num_envs, env_cfg, obs_cfg, reward_cfg, command_cfg, *, evaluation=False, **kwargs):
         self.tasks = resolve_tasks(env_cfg["multi_terrain"], require_locomotion=not evaluation)
@@ -162,7 +162,16 @@ class MultiTerrainEnv(MultiTerrainRewards, LocomotionEnv):
         if "stairs_up" not in self.tasks:
             return
         cfg = {key: value[self.terrain_tile_index] for key, value in state.tables.items()}
-        self._update_stairs_up_approach(wheels, cfg)
+        lower_contact = self._stairs_up_lower_contact(wheels, cfg)
+        # 先确认双轮实际站在台下，避免 reset 后接触信号尚未更新或空中出生误发奖。
+        state.lower_ground_seen |= state.task_mask & lower_contact.all(dim=1)
+        lifted = (wheels[..., 2] - self.wheel_radius >
+                  (cfg["lower_height"] + cfg["wheel_bottom_tolerance_m"])[:, None]).all(dim=1)
+        state.takeoff_event.copy_(state.task_mask & state.lower_ground_seen & lifted & ~state.takeoff_awarded)
+        state.takeoff_awarded |= state.takeoff_event
+        # 轮子仍可抵着立面；离地看实际高度，重新落回则必须有台下地面接触。
+        state.fallen_off |= state.task_mask & state.takeoff_awarded & lower_contact.any(dim=1)
+        self._update_stairs_up_approach(cfg, lower_contact.all(dim=1))
         contacts = self.robot.get_contacts(exclude_self_contact=True)
         # Genesis 的接触 link 索引是全场景索引；base_link_idx 是机器人局部索引。
         base_link = self.robot.link_start + self.base_link_idx
@@ -182,8 +191,11 @@ class MultiTerrainEnv(MultiTerrainRewards, LocomotionEnv):
             & (contacts["normal"][..., 2].abs() >= cfg["support_normal_z"][:, None])
             & (self.base_pos[:, 2:3] > position[..., 2])
         )
-        # 初次触到台面就结束后摆引导，不等支撑力/搭接深度/持续时间达标。
-        state.top_contact_seen |= state.task_mask & (surface_contact & (force_z > 0)).any(dim=1)
+        # 首次触台就切换到收腿引导，不等稳定支撑奖励；此拍之前的缩腿不补奖。
+        touching_top = state.task_mask & (surface_contact & (force_z > 0)).any(dim=1)
+        first_contact = touching_top & ~state.top_contact_seen
+        state.retract_start_length.copy_(torch.where(first_contact[:, None], self.leg_length, state.retract_start_length))
+        state.top_contact_seen |= touching_top
         self._update_stairs_up_backswing(wheels, cfg)
         top_contact = surface_contact & (
             local_x >= (self._value("obstacle_end") + cfg["support_margin_m"])[:, None])
@@ -192,45 +204,53 @@ class MultiTerrainEnv(MultiTerrainRewards, LocomotionEnv):
         quiet = ((vertical_speed <= cfg["max_vertical_speed_m_s"])
                  & (self.base_ang_vel[:, :2].norm(dim=1) <= cfg["max_roll_pitch_speed_rad_s"]))
         supported = state.task_mask & quiet & (upward_force >= cfg["support_force_n"])
-        # 在持续支撑窗口起点记录腿长，允许确认支撑的同时开始收腿。
-        starting = supported & (state.support_steps == 0) & ~state.support_awarded
-        state.support_leg_length.copy_(torch.where(starting[:, None], self.leg_length, state.support_leg_length))
         state.support_steps.copy_(torch.where(supported, state.support_steps + 1, 0))
         state.support_event.copy_(supported & (state.support_steps >= cfg["support_steps"]) & ~state.support_awarded)
         state.support_awarded |= state.support_event
 
         wheel_x = wheels[..., 0] - self.terrain_spawn_centers[:, :1]
         wheel_y = wheels[..., 1] - self.terrain_spawn_centers[:, 1:2]
-        # 用轮子后缘/最低点，而非轮心，确认整个轮子已具备落到上平台的条件。
-        clear = ((wheel_x - self.wheel_radius >=
-                  (self._value("obstacle_end") + cfg["wheel_edge_margin_m"])[:, None])
-                 & (wheel_x + self.wheel_radius <= self._value("max_x")[:, None])
-                 & (wheel_y.abs() <= self._value("corridor_half_width")[:, None])
-                 & (wheels[..., 2] - self.wheel_radius >=
-                    (cfg["top_height"] - cfg["wheel_bottom_tolerance_m"])[:, None])).all(dim=1)
-        shortened = (state.support_leg_length - self.leg_length >= cfg["retract_shortening_m"][:, None]).all(dim=1)
-        state.retract_event.copy_(state.task_mask & state.support_awarded & clear & shortened & ~state.retract_awarded)
-        state.retract_awarded |= state.retract_event
+        wheel_bottom = wheels[..., 2] - self.wheel_radius
+        # 首次双轮接触台面即可关闭收腿，不等整轮后缘越沿或最终站稳。
+        on_top = (
+            (wheel_x >= (self._value("obstacle_end") + cfg["wheel_edge_margin_m"])[:, None])
+            & (wheel_x <= self._value("max_x")[:, None])
+            & (wheel_y.abs() <= self._value("corridor_half_width")[:, None])
+            & ((wheel_bottom - cfg["top_height"][:, None]).abs() <= cfg["wheel_bottom_tolerance_m"][:, None])
+            & (self.wheel_contact > 0.5)
+        ).all(dim=1)
+        state.wheels_landed |= state.task_mask & on_top
+        eligible = state.task_mask & state.top_contact_seen & ~state.wheels_landed
+        score = ((state.retract_start_length - self.leg_length) / cfg["retract_shortening_m"][:, None]).clamp(0, 1)
+        state.retract_progress.copy_((score - state.retract_peak).clamp_min(0).mean(dim=1) * eligible)
+        state.retract_peak.copy_(torch.where(eligible[:, None], torch.maximum(state.retract_peak, score), state.retract_peak))
+        state.retract_awarded |= eligible & (state.retract_peak >= 1 - 1e-6).all(dim=1)
+        # 落台后允许向上弹跳；任一轮明显跌到台面以下即失败，无需等落到低处地面。
+        below_top = (wheel_bottom < (cfg["top_height"] - cfg["fall_height_tolerance_m"])[:, None]).any(dim=1)
+        state.fallen_off |= state.task_mask & state.wheels_landed & below_top
 
         # 最终成功独立于中间奖励：直接登上台阶的策略也可以完成任务。
         standing = state.task_mask & self.success & quiet & (self.base_height >= cfg["standing_height_m"])
         state.success_steps.copy_(torch.where(standing, state.success_steps + 1, 0))
         self.success &= ~state.task_mask | (state.success_steps >= cfg["success_steps"])
 
-    def _update_stairs_up_approach(self, wheels, cfg):
-        """近台阶伸腿抬升的有界增量；全回合最高值防止反复升降或离开区域刷分。"""
-        state = self.stairs_up_buffers
-        local = self.base_pos[:, :2] - self.terrain_spawn_centers
-        distance = cfg["approach_edge"] - local[:, 0]
+    def _stairs_up_lower_contact(self, wheels, cfg):
+        """逐轮确认台下地面接触，排除台面、腾空和立面上的高处接触。"""
         wheel_x = wheels[..., 0] - self.terrain_spawn_centers[:, :1]
         wheel_y = wheels[..., 1] - self.terrain_spawn_centers[:, 1:2]
-        on_lower_ground = (
+        return (
             (wheel_x < cfg["approach_edge"][:, None])
             & (wheel_y.abs() <= self._value("corridor_half_width")[:, None])
             & ((wheels[..., 2] - self.wheel_radius - cfg["lower_height"][:, None]).abs()
                <= cfg["wheel_bottom_tolerance_m"][:, None])
             & (self.wheel_contact > 0.5)
-        ).all(dim=1)
+        )
+
+    def _update_stairs_up_approach(self, cfg, on_lower_ground):
+        """近台阶伸腿抬升的有界增量；全回合最高值防止反复升降或离开区域刷分。"""
+        state = self.stairs_up_buffers
+        local = self.base_pos[:, :2] - self.terrain_spawn_centers
+        distance = cfg["approach_edge"] - local[:, 0]
         eligible = (
             state.task_mask & ~state.support_awarded & (self.base_contact < 0.5)
             & (distance > 0) & (distance <= cfg["approach_distance_m"])
@@ -302,7 +322,7 @@ class MultiTerrainEnv(MultiTerrainRewards, LocomotionEnv):
         outside = ((local[:, 1].abs() > self._value("corridor_half_width"))
                    | (local[:, 0] < self._value("min_x")) | (local[:, 0] > self._value("max_x")))
         stalled = self.stall_steps * self.dt >= self._value("stall_timeout_s")
-        return self.traversal & (outside | (stalled & ~self.success))
+        return self.traversal & (outside | (stalled & ~self.success) | self.stairs_up_buffers.fallen_off)
 
     def _task_success(self):
         return self.success
@@ -352,6 +372,7 @@ class MultiTerrainEnv(MultiTerrainRewards, LocomotionEnv):
                         state = self.stairs_up_buffers
                         metrics[f"task/{name}/support_reached"] = state.support_awarded[mask].float()
                         metrics[f"task/{name}/retract_reached"] = state.retract_awarded[mask].float()
+                        metrics[f"task/{name}/takeoff_reached"] = state.takeoff_awarded[mask].float()
                     if name == "locomotion":
                         mse = self.locomotion_buffers.tracking_errors[mask] / self.task_steps[mask].clamp_min(1)[:, None]
                         for j, key in enumerate(("lin_vel", "ang_vel", "height")):

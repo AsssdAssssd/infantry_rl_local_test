@@ -65,17 +65,23 @@ class StairsDownBuffers:
 
 @dataclass
 class StairsUpBuffers:
-    """上台阶：持续台面支撑、一次性收腿越沿事件及站立确认窗口。"""
+    """上台阶：台面接触后的收腿进度、首次双轮落台及站立确认窗口。"""
 
     task_mask: torch.Tensor
     tables: dict
     support_steps: torch.Tensor
     success_steps: torch.Tensor
-    support_leg_length: torch.Tensor
+    retract_start_length: torch.Tensor
+    retract_peak: torch.Tensor
     support_awarded: torch.Tensor
     retract_awarded: torch.Tensor
     support_event: torch.Tensor
-    retract_event: torch.Tensor
+    lower_ground_seen: torch.Tensor
+    takeoff_awarded: torch.Tensor
+    takeoff_event: torch.Tensor
+    retract_progress: torch.Tensor
+    wheels_landed: torch.Tensor
+    fallen_off: torch.Tensor
     approach_start_height: torch.Tensor
     approach_peak_height: torch.Tensor
     approach_lift_progress: torch.Tensor
@@ -94,6 +100,7 @@ class StairsUpBuffers:
             support_duration_s=0.10, support_force_n=5.0, support_normal_z=0.9,
             support_surface_tolerance_m=0.015, support_margin_m=0.005,
             retract_shortening_m=0.02, wheel_edge_margin_m=0.01, wheel_bottom_tolerance_m=0.005,
+            fall_height_tolerance_m=0.03,
             success_duration_s=0.20, standing_height_m=0.20,
             max_vertical_speed_m_s=0.3, max_roll_pitch_speed_rad_s=1.5,
         )
@@ -122,9 +129,14 @@ class StairsUpBuffers:
             task_mask=mask, tables=tables,
             support_steps=torch.zeros_like(env.episode_length_buf),
             success_steps=torch.zeros_like(env.episode_length_buf),
-            support_leg_length=env.base_pos.new_zeros((env.num_envs, 2)),
+            retract_start_length=env.base_pos.new_zeros((env.num_envs, 2)),
+            retract_peak=env.base_pos.new_zeros((env.num_envs, 2)),
             support_awarded=torch.zeros_like(mask), retract_awarded=torch.zeros_like(mask),
-            support_event=torch.zeros_like(mask), retract_event=torch.zeros_like(mask),
+            support_event=torch.zeros_like(mask),
+            lower_ground_seen=torch.zeros_like(mask),
+            takeoff_awarded=torch.zeros_like(mask), takeoff_event=torch.zeros_like(mask),
+            retract_progress=torch.zeros_like(env.base_height),
+            wheels_landed=torch.zeros_like(mask), fallen_off=torch.zeros_like(mask),
             approach_start_height=torch.zeros_like(env.base_height),
             approach_peak_height=torch.zeros_like(env.base_height),
             approach_lift_progress=torch.zeros_like(env.base_height),
@@ -145,11 +157,17 @@ class StairsUpBuffers:
         ids = slice(None) if env_idx is None else env_idx
         self.support_steps[ids] = 0
         self.success_steps[ids] = 0
-        self.support_leg_length[ids] = 0
+        self.retract_start_length[ids] = 0
+        self.retract_peak[ids] = 0
         self.support_awarded[ids] = False
         self.retract_awarded[ids] = False
         self.support_event[ids] = False
-        self.retract_event[ids] = False
+        self.lower_ground_seen[ids] = False
+        self.takeoff_awarded[ids] = False
+        self.takeoff_event[ids] = False
+        self.retract_progress[ids] = 0
+        self.wheels_landed[ids] = False
+        self.fallen_off[ids] = False
         self.approach_start_height[ids] = 0
         self.approach_peak_height[ids] = 0
         self.approach_lift_progress[ids] = 0

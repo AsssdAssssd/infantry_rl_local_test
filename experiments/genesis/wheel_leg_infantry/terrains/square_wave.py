@@ -7,7 +7,7 @@ from .base import TerrainGeometry
 
 PRESET = "square_wave"
 PARAMETER_KEY = "square_wave"
-PARAMETERS = dict(height=0.05, approach_length=0.50, base_thickness=0.10)
+PARAMETERS = dict(height=0.05, approach_length=0.8, base_thickness=0.10)
 LEVELS = {
     0: {"height": 0.020},
     1: {"height": 0.025},

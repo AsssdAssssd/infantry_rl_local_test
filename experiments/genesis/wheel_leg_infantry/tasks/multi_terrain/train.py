@@ -18,9 +18,9 @@ from .env import MultiTerrainEnv
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Task-driven multi-terrain training; edit multi_terrain/config.py for per-task settings")
-    parser.add_argument("-e", "--exp_name", default="multi_terrain_v1")
-    parser.add_argument("-B", "--num_envs", type=int, default=1024)
-    parser.add_argument("--max_iterations", type=int, default=25001)
+    parser.add_argument("-e", "--exp_name", default="multi_terrain_v2")
+    parser.add_argument("-B", "--num_envs", type=int, default=4096)
+    parser.add_argument("--max_iterations", type=int, default=5001)
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--log-root", default="logs")
     parser.add_argument("-v", "--vis", action="store_true")

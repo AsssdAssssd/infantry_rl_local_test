@@ -25,7 +25,7 @@ def _get_curriculum_cfg():
             },
             {
                 "name": "randomized",
-                "start_iteration": 2000,
+                "start_iteration": 1000,
                 "targets": {
                     "domain_rand": {"strength": 0.4},
                     "sensor_noise": {"strength": 0.4},
@@ -39,7 +39,7 @@ def _get_curriculum_cfg():
             },
             {
                 "name": "full",
-                "start_iteration": 3000,
+                "start_iteration": 1200,
                 "targets": {
                     "domain_rand": {"strength": 1.0},
                     "sensor_noise": {"strength": 1.0},
@@ -198,12 +198,13 @@ def get_cfgs():
             standing_probability=0.0,
         ),
         rewards=dict(
-            task_progress=5.0,
+            task_progress=10.0,
             task_success=20.0,
             stairs_up_support=10.0,
             stairs_up_retract=10.0,
-            stairs_up_approach_lift=5.0,
-            stairs_up_backswing=20.0,
+            stairs_up_takeoff=10.0,  # 双轮首次离开台下地面，一回合只奖励一次。
+            stairs_up_approach_lift=10.0,
+            stairs_up_backswing=10.0,
             task_lateral=-2.0,
             task_heading=-0.5,
             base_balance=-10.0,
@@ -212,17 +213,17 @@ def get_cfgs():
             leg_action_rate=-0.02,
             death=-10.0,
         ),
-        resampling_time_s=10.0,
+        resampling_time_s=3.0,
         terrain=dict(preset="stairs_up", tile_size=[16.0, 6.0]),
         traversal=dict(landing_length=0.8),
         termination=dict(
-            episode_length_s=10.0,
+            episode_length_s=4.0,
             termination_if_roll_greater_than=70.0,
             termination_if_pitch_greater_than=70.0,
             tilt_termination_duration_s=0.3,
             base_contact_termination_duration_s=10.0,
             corridor_half_width=1.0,
-            stall_timeout_s=5.0,
+            stall_timeout_s=2.0,
             progress_epsilon=0.01,
         ),
         success=dict(
@@ -240,9 +241,10 @@ def get_cfgs():
             support_normal_z=0.9,
             support_surface_tolerance_m=0.015,
             support_margin_m=0.1,
-            retract_shortening_m=0.05,
+            retract_shortening_m=0.05,  # 首次底盘触台后，每腿新增缩短量的奖励上限。
             wheel_edge_margin_m=0.01,
             wheel_bottom_tolerance_m=0.005,
+            fall_height_tolerance_m=0.03,  # 双轮落台后，任一轮底低于台面此距离即失败。
             success_duration_s=0.20,
             standing_height_m=0.20,
             max_vertical_speed_m_s=0.3,
@@ -285,6 +287,8 @@ def get_cfgs():
             joint_vel=-0.001,
             wheel_action_rate=-0.05,
             leg_action_rate=-0.02,
+            leg_symmetry=-5.0,
+            leg_symmetry_bonus=0.2,
             base_contact=-10.0,
             death=-10.0,
         ),
@@ -442,7 +446,7 @@ def get_cfgs():
         weight=1.0,
         commands=dict(
             num_commands=3,
-            lin_vel_range=[1.0, 2.5],
+            lin_vel_range=[0.5, 2.5],
             ang_vel_range=[0.0, 0.0],
             base_height_range=[0.20, 0.30],
             standing_probability=0.0,
