@@ -116,7 +116,7 @@ class RotateEnv(RotateRewards, LocomotionEnv):
         # 世界朝向最短路径误差 → 加到当前（未 wrap 的）关节角上，避免 ±π 处 2π 跳变
         err = _wrap(world_target - self.gimbal_world_yaw)
         joint_target = (self.gimbal_yaw_ang + err).unsqueeze(-1)
-        pitch_joint_keep = torch.full((self.num_envs,1),math.radians(-20.0),dtype=gs.tc_float,device=gs.device)
+        pitch_joint_keep = torch.full((self.num_envs,1),math.radians(-5.0),dtype=gs.tc_float,device=gs.device)
 
         self.robot.control_dofs_position(torch.cat([joint_target,pitch_joint_keep],dim=-1), self.gimbal_dof_idx)
 
@@ -149,9 +149,9 @@ class RotateEnv(RotateRewards, LocomotionEnv):
         rel = _wrap(self.gimbal_world_yaw - base_yaw)  # base → gimbal 相对角
         err = _wrap(self.gimbal_yaw_ref - self.gimbal_world_yaw)  # 离目标还差多少
         return {
-            "gimbal_yaw_joint": (self.gimbal_world_yaw * self.obs_scales["gimbal_yaw_angle"]).unsqueeze(-1),  # 1
+            # "gimbal_yaw_joint": (self.gimbal_world_yaw * self.obs_scales["gimbal_yaw_angle"]).unsqueeze(-1),  # 1
             "gimbal_yaw_2_base_angle": torch.stack([torch.sin(rel), torch.cos(rel)], dim=-1),  # 2
-            "gimbal_yaw_error": torch.stack([torch.sin(err), torch.cos(err)], dim=-1),  # 2
+            # "gimbal_yaw_error": torch.stack([torch.sin(err), torch.cos(err)], dim=-1),  # 2
             "gimbal_yaw_abs_vel": (
                 self.gimbal_yaw_abs_vel * self.obs_scales["gimbal_yaw_vel"]
             ).unsqueeze(-1),  # 1
@@ -159,8 +159,7 @@ class RotateEnv(RotateRewards, LocomotionEnv):
             # 本车非完整约束，base 横向≈0，故策略可用 cos(rel) 投到云台系前向。
             "estimated_forward_vel": (
                 self.estimated_base_lin_vel * self.obs_scales["lin_vel"]
-            ).unsqueeze(-1),  # 1
-            
+            ).unsqueeze(-1),  # 1       ？ TODO
         }
 
     def _get_task_privileged_observation_components(self):

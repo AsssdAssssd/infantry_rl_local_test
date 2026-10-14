@@ -124,6 +124,7 @@ class KeyboardCommand:
             f"height={self.height_target:.3f} m  gimbal={self.gimbal_yaw_vel:+.2f} rad/s",
             f"state    vx_true={env.base_lin_vel[0, 0].item():+.2f} m/s  "
             f"vx_est={velocity['estimated_forward_velocity'].item():+.2f} m/s  "
+            f"vx_world={env.robot.get_vel()[0,0].item():+.2f} m/s  "
             f"wz={env.base_ang_vel[0, 2].item():+.2f} rad/s",
             f"gimbal   joint={gimbal['gimbal_joint'].item():+.3f}  "
             f"world={gimbal['gimbal_world_yaw'].item():+.3f}  "
