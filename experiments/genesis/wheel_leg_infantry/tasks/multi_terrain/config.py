@@ -4,11 +4,11 @@ from ..locomotion.config_locomotion import get_cfgs as locomotion_cfgs
 from ..locomotion.config_common import get_final_command_cfg
 from ...terrains.registry import level_catalog
 
-TASK_NAMES = ("locomotion", "stairs_down", "stairs_up", "slope_up", "slope_down", "rough", "square_wave", "platform_ridge")
+TASK_NAMES = ("locomotion", "stairs_down", "stairs_up", "slope_up", "slope_down", "square_wave", "platform_ridge")
 
 
 def _get_curriculum_cfg():
-    """按阶段配置随机化、传感器噪声与任务权重"""
+    """按阶段配置随机化、传感器噪声、任务权重与各地形命令范围。"""
     return {
         "enabled": True,
         "stages": [
@@ -19,22 +19,31 @@ def _get_curriculum_cfg():
                     "domain_rand": {"strength": 0.0},
                     "sensor_noise": {"strength": 0.0},
                     "task_weights": {
+                        "square_wave": 0.0,
                         "platform_ridge": 0.0,
+                    },
+                    "task_command_ranges": {
+                        # 按任务名配置，仅填写要覆盖的项；未填写项使用任务各难度的 commands。
+                        # "stairs_down": {
+                        #     "lin_vel_range": [1.0, 2.5],
+                        #     "ang_vel_range": [0.0, 0.0],
+                        #     "base_height_range": [0.20, 0.30],
+                        # },
                     },
                 },
             },
             {
                 "name": "randomized",
-                "start_iteration": 1000,
+                "start_iteration": 200,
                 "targets": {
                     "domain_rand": {"strength": 0.4},
                     "sensor_noise": {"strength": 0.4},
                     "task_weights": {
-                        "square_wave": 0.0,
                         "platform_ridge": 1.0,
                         "stairs_down": 0.5,
                         "slope_down": 0.5,
                     },
+                    "task_command_ranges": {},  # 仅填写变化项，其余继承前面阶段。
                 },
             },
             {
@@ -43,6 +52,7 @@ def _get_curriculum_cfg():
                 "targets": {
                     "domain_rand": {"strength": 1.0},
                     "sensor_noise": {"strength": 1.0},
+                    "task_command_ranges": {},
                 },
             },
         ],
@@ -124,6 +134,97 @@ def get_cfgs():
         ),
     )
 
+    # 上台阶
+    tasks["stairs_up"] = dict(
+        enabled=True,
+        weight=1.0,
+        commands=dict(
+            num_commands=3,
+            lin_vel_range=[1.0, 2.5],
+            ang_vel_range=[0.0, 0.0],
+            base_height_range=[0.31, 0.31],
+            standing_probability=0.0,
+        ),
+        rewards=dict(
+            task_progress=10.0,
+            task_success=20.0,
+            stairs_up_support=10.0,
+            stairs_up_retract=20.0,
+            stairs_up_takeoff=10.0,  # 双轮首次离开台下地面，一回合只奖励一次。
+            stairs_up_landing_distance=10.0,  # 首轮触台距离奖励，单位为奖励/m，仅首次触台发放。
+            stairs_up_wheel_wall_force=-0.2,  # 轮子撞立面的法向力总和（N），按 dt 积分。
+            stairs_up_approach_lift=10.0,
+            stairs_up_backswing=30.0,
+            stairs_up_forward_swing=5.0,  # 轮子抬够后向前摆腿的新增进度，与伸腿同时引导。
+            stairs_up_extend=5.0,  # 轮子位于台面上方时，新增伸腿长度的进度奖励。
+            stairs_up_wheel_support=10.0,  # 落台阶段双轮首次真实接触上台面支撑，一回合一次。
+            task_lateral=-2.0,
+            task_heading=-0.5,
+            base_balance=-20.0,
+            joint_vel=-0.001,
+            wheel_action_rate=-0.05,
+            leg_action_rate=-0.02,
+            death=-10.0,
+        ),
+        resampling_time_s=3.0,
+        terrain=dict(preset="stairs_up", tile_size=[16.0, 6.0]),
+        traversal=dict(landing_length=0.8),
+        termination=dict(
+            episode_length_s=4.0,
+            termination_if_roll_greater_than=70.0,
+            termination_if_pitch_greater_than=70.0,
+            tilt_termination_duration_s=0.3,
+            base_contact_termination_duration_s=10.0,
+            corridor_half_width=1.0,
+            stall_timeout_s=2.0,
+            progress_epsilon=0.01,
+        ),
+        success=dict(
+            max_roll_deg=10.0,
+            max_pitch_deg=10.0,
+            wheel_clearance_m=0.15,
+            wheel_surface_tolerance_m=0.08,
+        ),
+        ascent=dict(
+            # 接近台阶时的抬升与后摆引导。
+            approach_distance_m=0.05,  # 机体原点距台阶沿的范围（m）；抬升仅在沿前，后摆允许沿前后。
+            approach_clearance_m=0.01,  # 抬升目标：底盘碰撞体最低点高出台阶顶面的余量（m）。
+            backswing_angle_deg=10.0,  # 虚拟腿后摆奖励的目标角度（°）；正值为后摆，达到后进度饱和。
+            # 搭接奖励与收腿奖励共用；支撑中断后重新累计稳定时间。
+            support_duration_s=0.10,  # 深度、支撑力和速度门限须连续满足的时间（s）。
+            support_force_n=5.0,  # 满足搭接深度的底盘接触点，向上支撑力之和的下限（N）。
+            support_normal_z=0.9,  # 台面接触法向 |nz| 的下限（无量纲），用于排除侧壁接触。
+            support_surface_tolerance_m=0.015,  # 底盘或轮子接触点与台面高度的最大偏差（m）。
+            support_margin_m=0.1,  # 计入支撑力的底盘接触点须深入台面至少此距离（m）。
+            retract_shortening_m=0.05,  # 相对首次稳定支撑时的腿长，每腿可获奖励的最大缩短量（m）。
+            # 机身已搭台、双轮轮底达到台面高度后启用；前摆和伸腿没有角度先后门槛。
+            forward_swing_angle_deg=20.0,  # 前摆奖励的饱和角度（°），对应负腿角；不作为伸腿条件。
+            landing_extension_m=0.05,  # 相对进入落台阶段时的腿长，每腿可获奖励的最大伸长量（m）。
+            # 双轮落台判定及落台后的跌落终止。
+            wheel_edge_margin_m=0.01,  # 落台时轮心须越过台阶沿的最小水平距离（m）。
+            wheel_bottom_tolerance_m=0.005,  # 轮底贴地/贴台的高度容差，亦作为双轮离地的高度门限（m）。
+            fall_height_tolerance_m=0.03,  # 双轮曾落台后，任一轮底低于台面超过此距离即失败（m）。
+            # 轮子撞击台阶立面的接触力惩罚。
+            wall_normal_z_max=0.3,  # 立面接触法向 |nz| 的上限（无量纲），要求法向近似水平。
+            wall_surface_tolerance_m=0.015,  # 立面接触点沿前进方向及高度方向的范围容差（m）。
+            # 到达终点后的成功确认，以及支撑/站立共用的速度门限。
+            success_duration_s=0.20,  # 到达终点并满足站姿、接触、高度及速度条件的连续时间（s）。
+            standing_height_m=0.20,  # 成功站立时，机体原点相对脚下台面的最低高度（m）。
+            max_vertical_speed_m_s=0.3,  # 支撑和成功站立判稳时，竖直速度绝对值的上限（m/s）。
+            max_roll_pitch_speed_rad_s=1.5,  # 支撑和站立判稳时，机体系横滚/俯仰角速度合范数上限（rad/s）。
+        ),
+        # 难度参数读取 terrains 对应模块的 LEVELS；None 表示使用最高已定义等级。
+        curriculum=dict(
+            enabled=True,
+            difficulty=0,
+            min_difficulty=0,
+            max_difficulty=None,
+            window_episodes=100,
+            promote_threshold=0.95,
+            demote_threshold=0.2,
+        ),
+    )
+
     # 下台阶
     tasks["stairs_down"] = dict(
         enabled=True,
@@ -184,86 +285,6 @@ def get_cfgs():
         ),
         # 首次落到台阶下方后，短时抑制竖直振荡及 roll/pitch 角速度。
         landing_stability=dict(duration_s=0.3, ang_vel_weight=0.25),
-    )
-
-    # 上台阶
-    tasks["stairs_up"] = dict(
-        enabled=True,
-        weight=1.0,
-        commands=dict(
-            num_commands=3,
-            lin_vel_range=[1.0, 2.5],
-            ang_vel_range=[0.0, 0.0],
-            base_height_range=[0.31, 0.31],
-            standing_probability=0.0,
-        ),
-        rewards=dict(
-            task_progress=10.0,
-            task_success=20.0,
-            stairs_up_support=10.0,
-            stairs_up_retract=20.0,
-            stairs_up_takeoff=10.0,  # 双轮首次离开台下地面，一回合只奖励一次。
-            stairs_up_landing_distance=10.0,  # 首轮触台距离奖励，单位为奖励/m，仅首次触台发放。
-            stairs_up_wheel_wall_force=-0.2,  # 轮子撞立面的法向力总和（N），按 dt 积分。
-            stairs_up_approach_lift=10.0,
-            stairs_up_backswing=30.0,
-            task_lateral=-2.0,
-            task_heading=-0.5,
-            base_balance=-20.0,
-            joint_vel=-0.001,
-            wheel_action_rate=-0.05,
-            leg_action_rate=-0.02,
-            death=-10.0,
-        ),
-        resampling_time_s=3.0,
-        terrain=dict(preset="stairs_up", tile_size=[16.0, 6.0]),
-        traversal=dict(landing_length=0.8),
-        termination=dict(
-            episode_length_s=4.0,
-            termination_if_roll_greater_than=70.0,
-            termination_if_pitch_greater_than=70.0,
-            tilt_termination_duration_s=0.3,
-            base_contact_termination_duration_s=10.0,
-            corridor_half_width=1.0,
-            stall_timeout_s=2.0,
-            progress_epsilon=0.01,
-        ),
-        success=dict(
-            max_roll_deg=10.0,
-            max_pitch_deg=10.0,
-            wheel_clearance_m=0.15,
-            wheel_surface_tolerance_m=0.08,
-        ),
-        ascent=dict(
-            approach_distance_m=0.35,
-            approach_clearance_m=0.01,  # 底盘碰撞体下底面高出台阶顶面的余量。
-            backswing_angle_deg=20.0,  # 正腿角为向后摆，低于当前 30° 摆角限幅。
-            support_duration_s=0.10,
-            support_force_n=5.0,
-            support_normal_z=0.9,
-            support_surface_tolerance_m=0.015,
-            support_margin_m=0.1,
-            retract_shortening_m=0.05,  # 首次底盘触台后，每腿新增缩短量的奖励上限。
-            wheel_edge_margin_m=0.01,
-            wheel_bottom_tolerance_m=0.005,
-            fall_height_tolerance_m=0.03,  # 双轮落台后，任一轮底低于台面此距离即失败。
-            wall_normal_z_max=0.3,  # 接触法向近似水平，区分立面和台面/地面。
-            wall_surface_tolerance_m=0.015,
-            success_duration_s=0.20,
-            standing_height_m=0.20,
-            max_vertical_speed_m_s=0.3,
-            max_roll_pitch_speed_rad_s=1.5,
-        ),
-        # 难度参数读取 terrains 对应模块的 LEVELS；None 表示使用最高已定义等级。
-        curriculum=dict(
-            enabled=True,
-            difficulty=0,
-            min_difficulty=0,
-            max_difficulty=None,
-            window_episodes=100,
-            promote_threshold=0.95,
-            demote_threshold=0.2,
-        ),
     )
 
     # 上坡
@@ -386,65 +407,6 @@ def get_cfgs():
         ),
     )
 
-    # 起伏路面
-    tasks["rough"] = dict(
-        enabled=False,
-        weight=1.0,
-        commands=dict(
-            num_commands=3,
-            lin_vel_range=[1.0, 2.5],
-            ang_vel_range=[0.0, 0.0],
-            base_height_range=[0.22, 0.36],
-            standing_probability=0.0,
-        ),
-        rewards=dict(
-            tracking_lin_vel=-2.0,
-            tracking_ang_vel=-3.0,
-            gated_tracking_lin_vel=5.0,
-            gated_tracking_ang_vel=7.0,
-            task_progress=5.0,
-            task_success=20.0,
-            task_lateral=-2.0,
-            task_heading=-0.5,
-            base_balance=-20.0,
-            leg_angle_limits=-5.0,
-            joint_vel=-0.001,
-            wheel_action_rate=-0.05,
-            leg_action_rate=-0.02,
-            base_contact=-3.0,
-            death=-10.0,
-        ),
-        resampling_time_s=10.0,
-        terrain=dict(preset="random_rough", tile_size=[16.0, 6.0]),
-        traversal=dict(landing_length=0.8, distance=3.0),
-        termination=dict(
-            episode_length_s=10.0,
-            termination_if_roll_greater_than=10.0,
-            termination_if_pitch_greater_than=10.0,
-            tilt_termination_duration_s=0.3,
-            base_contact_termination_duration_s=0.5,
-            corridor_half_width=1.0,
-            stall_timeout_s=1.0,
-            progress_epsilon=0.1,
-        ),
-        success=dict(
-            max_roll_deg=10.0,
-            max_pitch_deg=10.0,
-            wheel_clearance_m=0.15,
-            wheel_surface_tolerance_m=0.08,
-        ),
-        # 难度参数读取 terrains 对应模块的 LEVELS；None 表示使用最高已定义等级。
-        curriculum=dict(
-            enabled=True,
-            difficulty=0,
-            min_difficulty=0,
-            max_difficulty=None,
-            window_episodes=100,
-            promote_threshold=0.95,
-            demote_threshold=0.2,
-        ),
-    )
-
     tasks["square_wave"] = dict(
         enabled=True,
         weight=1.0,
@@ -502,6 +464,7 @@ def get_cfgs():
             demote_threshold=0.2,
         ),
     )
+
     # 后期凸台任务：从第二平台朝 -x 越过窄凸台，再经第一平台下到地面。
     # enabled 控制是否构建；全局课程 task_weights 控制何时分配训练环境。
     tasks["platform_ridge"] = dict(

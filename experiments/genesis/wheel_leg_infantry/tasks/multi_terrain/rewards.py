@@ -33,6 +33,15 @@ class MultiTerrainRewards:
     def _reward_stairs_up_backswing(self):
         return self.stairs_up_buffers.backswing_progress * ~self.terminated_buf
 
+    def _reward_stairs_up_forward_swing(self):
+        return self.stairs_up_buffers.forward_progress * ~self.terminated_buf
+
+    def _reward_stairs_up_extend(self):
+        return self.stairs_up_buffers.extend_progress * ~self.terminated_buf
+
+    def _reward_stairs_up_wheel_support(self):
+        return self.stairs_up_buffers.wheel_support_event & ~self.terminated_buf
+
     def _reward_task_lateral(self):
         return (self.base_pos[:, 1] - self.terrain_spawn_centers[:, 1]).square()
 

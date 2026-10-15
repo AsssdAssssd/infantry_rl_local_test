@@ -12,7 +12,6 @@
 | `slope_up.py` / `slope_down.py` | 独立上下坡；下坡复用上坡的参数、难度与几何实现 |
 | `scene.py` | `TerrainPatches` 统一区域摆放、绑定、高度查询和出生调整；`OffsetScene` 统一坐标偏移和平地有限化 |
 | `square_wave.py` | 小高度单级上台阶（保留原入口名）：默认参数、难度表、箱体几何和高度查询 |
-| `random_rough.py` | 二维随机起伏：默认参数、难度表、网格和高度查询 |
 | `base.py` | 各单地形共用的 `TerrainGeometry` 接口 |
 | `registry.py` | 注册各地形模块，读取参数和难度表快照 |
 | `config.py` | 公共尺寸、地形预设与配置校验 |

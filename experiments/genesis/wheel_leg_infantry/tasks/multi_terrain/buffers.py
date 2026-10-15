@@ -93,6 +93,15 @@ class StairsUpBuffers:
     top_contact_seen: torch.Tensor
     backswing_peak: torch.Tensor
     backswing_progress: torch.Tensor
+    landing_started: torch.Tensor
+    forward_start_angle: torch.Tensor
+    forward_peak: torch.Tensor
+    forward_progress: torch.Tensor
+    extend_start_length: torch.Tensor
+    extend_peak: torch.Tensor
+    extend_progress: torch.Tensor
+    wheel_support_event: torch.Tensor
+    wheel_support_awarded: torch.Tensor
 
     @classmethod
     def create(cls, env):
@@ -101,6 +110,7 @@ class StairsUpBuffers:
         defaults = dict(
             approach_distance_m=0.50, approach_clearance_m=0.01,
             backswing_angle_deg=20.0,
+            forward_swing_angle_deg=20.0, landing_extension_m=0.05,
             support_duration_s=0.10, support_force_n=5.0, support_normal_z=0.9,
             support_surface_tolerance_m=0.015, support_margin_m=0.005,
             retract_shortening_m=0.02, wheel_edge_margin_m=0.01, wheel_bottom_tolerance_m=0.005,
@@ -111,6 +121,11 @@ class StairsUpBuffers:
         )
         tables = {key: env.base_pos.new_tensor([stage.get("ascent", {}).get(key, value)
                   for stage in env.terrain.stages]) for key, value in defaults.items()}
+        # 旧存档未配置这些奖励时保留原有收腿阶段，避免续训隐式改变课程行为。
+        tables["landing_enabled"] = torch.tensor([
+            any(stage["rewards"].get(key, 0) > 0 for key in
+                ("stairs_up_forward_swing", "stairs_up_extend", "stairs_up_wheel_support"))
+            for stage in env.terrain.stages], device=env.device)
         for name in ("support", "success"):
             tables[name + "_steps"] = (tables[name + "_duration_s"] / env.dt).ceil().long().clamp_min(1)
         tables["top_height"] = env.base_pos.new_tensor([
@@ -153,6 +168,15 @@ class StairsUpBuffers:
             top_contact_seen=torch.zeros_like(mask),
             backswing_peak=env.base_pos.new_zeros((env.num_envs, 2)),
             backswing_progress=torch.zeros_like(env.base_height),
+            landing_started=torch.zeros_like(mask),
+            forward_start_angle=env.base_pos.new_zeros((env.num_envs, 2)),
+            forward_peak=env.base_pos.new_zeros((env.num_envs, 2)),
+            forward_progress=torch.zeros_like(env.base_height),
+            extend_start_length=env.base_pos.new_zeros((env.num_envs, 2)),
+            extend_peak=env.base_pos.new_zeros((env.num_envs, 2)),
+            extend_progress=torch.zeros_like(env.base_height),
+            wheel_support_event=torch.zeros_like(mask),
+            wheel_support_awarded=torch.zeros_like(mask),
         )
 
     def bottom_height(self, env):
@@ -187,3 +211,12 @@ class StairsUpBuffers:
         self.top_contact_seen[ids] = False
         self.backswing_peak[ids] = 0
         self.backswing_progress[ids] = 0
+        self.landing_started[ids] = False
+        self.forward_start_angle[ids] = 0
+        self.forward_peak[ids] = 0
+        self.forward_progress[ids] = 0
+        self.extend_start_length[ids] = 0
+        self.extend_peak[ids] = 0
+        self.extend_progress[ids] = 0
+        self.wheel_support_event[ids] = False
+        self.wheel_support_awarded[ids] = False

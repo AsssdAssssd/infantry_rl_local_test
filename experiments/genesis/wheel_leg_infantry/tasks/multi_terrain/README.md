@@ -1,6 +1,6 @@
 # 任务驱动多地形训练
 
-独立入口 `tasks.multi_terrain`，一套策略同时训练七种通关任务和保留用的 locomotion。
+独立入口 `tasks.multi_terrain`，一套策略同时训练六种通关任务和保留用的 locomotion。
 机器人、控制器、IMU/ToF 观测及三维命令接口复用 locomotion；不额外向 actor 输入任务 ID 或终点真值。
 相同观测配置的 locomotion 权重可通过 `--load-weights` 迁移。
 
@@ -16,6 +16,9 @@
 .venv/bin/python -m experiments.genesis.wheel_leg_infantry.tasks.multi_terrain.train \
   -e multi_terrain_v1 --resume --max_iterations 20001
 ```
+
+训练使用本目录的 `config.py`，`--load-weights` 同样使用该配置。
+`--resume` 默认恢复运行时保存的配置；如需续训时使用当前 `config.py`，添加 `--resume-config current`。
 
 训练需要可用的 CUDA/Genesis 环境。默认 64 个环境；所有任务的课程几何预先构建为独立区域，
 增大环境数量前应先测显存与吞吐。示例 checkpoint 路径需替换为实际文件。
@@ -37,7 +40,6 @@
 | `stairs_up` | 上一级 20 cm 台阶 | 高度 15 → 17 → 20 cm | 1，已启用 |
 | `slope_up` | 上一个独立坡面 | 坡角等级：5 → 10 → 15 → 20 → 23 → 25°，高差 25 cm | 1 |
 | `slope_down` | 下一个独立坡面 | 与上坡相同，但独立统计成功率 | 1 |
-| `rough` | 通过二维随机起伏地面 | `random_rough` 高度参数 1 → 2 → 3 → 4 → 5 cm | 1 |
 | `square_wave` | 登上一级小高度台阶 | `square_wave` 高度 2 → 2.5 → 3 → 3.5 → 4 → 4.5 → 5 cm | 1 |
 | `platform_ridge` | 朝 −x 越过凸台，经第一平台下到地面 | 第二平台与凸台高差 1 → 2 → 3 → 4 → 5 cm | 15000 轮前为 0，之后为 1 |
 
@@ -45,13 +47,11 @@
 上述表格描述当前默认值；修改模块难度表会作用于新训练，已有训练使用保存的 `level_catalog` 快照。
 上台阶从 15 cm 开始，按该任务的独立成功率课程推进到 17 cm、20 cm。
 
-任务层不再重建单级楼梯、小高度上台阶或分段变摩擦起伏。
+任务层不再重建单级楼梯或小高度上台阶。
 台阶、坡面模块提供 `traversal_end`，任务终点沿通行方向位于其后 `landing_length` 处；台阶和坡面默认 0.8 m。
-随机起伏没有固定障碍末端，使用 `traversal.distance=3.0 m`，终点在 x=3.8 m。
 下台阶默认末沿 x=0.8 m，终点 x=1.6 m，地块长 16 m，回合上限 10 s。
 `square_wave` 保留原入口名，现为单级上台阶：从低平地出生，台阶沿 x=0.5 m，高平台延伸至地块末端，终点 x=1.3 m，回合上限 10 s。
 独立坡面的参数按注册等级读取，水平坡长由 `height / tan(angle)` 决定。
-随机起伏复用二维非凸网格与统一材质，不再具有旧 task 几何的左右分区摩擦差。
 
 `enabled=False` 或 `weight=0` 关闭某任务，其他任务按权重重新归一化。
 环境按最大余数法分组，同一全局阶段内不重抽任务。全局阶段改变任务权重时，重新计算目标配额；
@@ -69,7 +69,7 @@
 - `resampling_time_s`：本任务自己的命令重采样周期。
 - `rewards`：本任务完整奖励权重表，未指定的奖励为零。
 - `terrain`：注册地形的 `preset`、地块尺寸等公共参数；高度等难度参数由 `LEVELS` 提供。
-- `traversal`：末沿后的落地距离；无固定末沿的随机地面另设通行距离。
+- `traversal`：障碍末沿后的落地距离。
 - `termination`：最大时长、姿态与接触容忍时间、赛道宽度、停滞超时。
 - `success`：终点允许姿态、轮子越过障碍的余量与落地高度误差。
 - `curriculum`：本任务初始/最低/最高难度、成功率窗口和升降级阈值。
@@ -107,7 +107,7 @@ overrides={
 `resampling_time_s`、`tracking_success`、`landing_stability` 和 `ascent`。不允许覆盖几何；几何只在 `terrains` 中维护。
 
 locomotion 固定使用 plane 的 0 级，完整时长回合内的线速度、角速度、高度 RMSE 达标记为成功，
-阈值在 `tracking_success` 中。全局 `curriculum_cfg` 由 `config.py` 的 `_get_curriculum_cfg()` 返回，控制动力学随机化、传感器噪声强度和任务配额：
+阈值在 `tracking_success` 中。全局 `curriculum_cfg` 由 `config.py` 的 `_get_curriculum_cfg()` 返回，控制动力学随机化、传感器噪声强度、任务配额和各地形命令范围：
 
 ```python
 def _get_curriculum_cfg():
@@ -156,6 +156,32 @@ def _get_curriculum_cfg():
     }
 ```
 
+在任意阶段的 `targets` 中添加 `task_command_ranges`，按任务名覆盖 command 范围，例如：
+
+```python
+"task_command_ranges": {
+    "locomotion": {
+        "lin_vel_range": [-1.0, 1.0],
+        "ang_vel_range": [-2.0, 2.0],
+        "base_height_range": [0.22, 0.30],
+        "standing_probability": 0.3,
+    },
+    "stairs_down": {"lin_vel_range": [0.5, 1.0]},
+    "platform_ridge": {"lin_vel_range": [0.8, 1.5]},
+},
+```
+
+任务名为 `locomotion`、`stairs_down`、`stairs_up`、`slope_up`、`slope_down`、
+`square_wave`、`platform_ridge`，与 `tasks` 中的名称一致。支持上例中的四个字段。
+全局阶段覆盖优先于该任务各难度的 `curriculum.overrides.commands`，对该任务所有难度生效；
+未覆盖字段继续使用各难度配置。后续阶段只填写要改变的任务/字段，其他项累计继承，
+空字典表示没有新变化。范围必须有限且下限不大于上限，机身高度为正，通关任务线速度下限为正。
+已禁用任务的覆盖不会重新启用任务。
+
+阶段切换时更新采样范围，已有 command 保持到下一次按任务周期重采样或回合 reset；
+其他任务不受影响。第 0 阶段在首次采样前生效，续训按恢复轮次重建累计覆盖。
+运行时覆盖不修改原始任务和难度快照。关闭全局课程则使用任务各难度原始 commands。
+
 后续阶段继承此前的目标值；凸台阶段保持随机化和噪声强度 1.0，其他任务保留各自权重。
 凸台几何及 5 个难度在初始化时预建，前期不分配环境；启用后从 0 级开始独立统计成功率并升降级。
 `enabled=False` 或任务初始 `weight=0` 会禁用该任务，全局 `task_weights` 不会重新启用未构建的任务。
@@ -170,7 +196,7 @@ def _get_curriculum_cfg():
 
 ## 通关奖励与结束条件
 
-七种通关任务禁止非零 `alive` 奖励；locomotion 保留经典奖励。
+六种通关任务禁止非零 `alive` 奖励；locomotion 保留经典奖励。
 通关任务默认使用：
 
 - `task_progress=5`：每前进到本回合新的最远位置奖励 5 × 新增米数，最多计算到终点。
@@ -182,7 +208,7 @@ def _get_curriculum_cfg():
 
 ### 上台阶三阶段奖励
 
-`stairs_up` 在现有水平进度奖励之外增加靠近时抬升、搭接前后摆、触台后缩腿的增量奖励，以及稳定搭台事件奖励。
+`stairs_up` 在现有水平进度奖励之外增加靠近时抬升、搭接前后摆、稳定支撑后缩腿的增量奖励，以及稳定搭台事件奖励。
 参数集中在 `config.py` 的 `tasks["stairs_up"]["ascent"]`。
 
 `stairs_up_approach_lift=2`：机体原点在第一级台阶前 `approach_distance_m=0.35 m` 内，
@@ -207,19 +233,40 @@ def _get_curriculum_cfg():
 
 每条腿的进度为 `clamp(腿角 / 目标后摆角, 0, 1)`，只对超过本回合该腿历史最高进度的增量发奖，
 两腿增量取平均后乘 2，不乘 `dt`。左右腿各最多贡献 +1，每回合合计最多 +2；
-保持姿态、反复前后摆、在远处摆好后进入范围都不能重复或补领奖励，同拍失败不发奖励。
+历史最高进度只在上述有效区域和阶段内更新；区域外的后摆不消耗奖励额度，进入有效区域后
+可获得超过此前有效区域历史峰值的进度奖励。保持姿态、反复前后摆、离开再进入都不能重复领奖，同拍失败不发奖励。
 出生已有的后摆进度不计奖。首次真实台面接触（向上力 >0）当拍立即关闭该奖励，并锁存至 reset，
 不等待搭接奖励的 5 N 支撑力、搭接深度或 0.10 s 稳定时间；仅碰侧壁不会锁存台面接触。
 此项只提供奖励引导，不直接修改动作，也不要求最终成功必须完成后摆。
 
-`stairs_up_retract` 在 baselink 首次真实接触台面（向上力 >0）时记录左右腿长，随后对每条腿
-相对该基准的新增缩短量发奖，无需等待稳定搭接奖励、轮子越沿或水平前进。
-每腿进度为 `clamp((触台时腿长 − 当前腿长) / retract_shortening_m, 0, 1)`；
+`stairs_up_retract` 复用稳定搭接门限：baselink 接触点须深入台面至少 `support_margin_m`，
+这些接触点的向上支撑力合计须达到 `support_force_n`，并连续稳定支撑 `support_duration_s`。
+当前配置为 10 cm、5 N、0.10 s，同时保留支撑窗口的竖直速度和角速度门限。
+首次满足稳定支撑时记录左右腿长，随后仅在继续满足稳定支撑且双轮尚未落台时，
+对相对该基准的新增缩短量发奖；无需轮子越沿或水平前进。
+每腿进度为 `clamp((首次稳定支撑时腿长 − 当前腿长) / retract_shortening_m, 0, 1)`；
 只奖励超过该腿历史最高进度的增量，两腿取平均后乘奖励权重，不乘 `dt`。
-当前 `retract_shortening_m=0.05 m`、权重为 10，因此左右腿各缩短 5 cm 时累计最多 +10；
-保持腿长、反复伸缩不能重复领奖，首次触台之前的缩短量不补奖。
+当前 `retract_shortening_m=0.05 m`、权重为 20，因此左右腿各缩短 5 cm 时累计最多 +20；
+保持腿长、反复伸缩不能重复领奖，首次稳定支撑之前的缩短量不补奖。
+支撑中断后暂停奖励，重新连续满足窗口时才恢复；暂停期间的缩短量也不补领。
 
-双轮第一次同时落在顶部台面，当拍即永久关闭该回合缩腿奖励，不等稳定站立或最终成功。
+机身当前已接触台面、双轮轮底均达到台面高度（允许 `wheel_bottom_tolerance_m` 容差），
+且双轮尚未落台时，进入落台阶段并永久关闭该回合缩腿奖励；不要求先拿到稳定搭接奖励。
+此时同时启用前摆、伸腿引导，不要求前摆到目标角度后才伸腿，也不直接修改控制动作：
+
+- `stairs_up_forward_swing=5`：从进入落台阶段时的腿角开始，鼓励向负腿角目标靠近的新增前摆，两腿进度取平均；
+  `forward_swing_angle_deg=20` 仅表示奖励饱和角度，不是伸腿或成功判定门槛。
+- `stairs_up_extend=5`：以进入落台阶段时的腿长为基准，对每腿新增伸长量发奖，
+  `landing_extension_m=0.05 m` 时进度饱和。逐轮要求轮心已越沿、轮底不低于台面容差，避免向立面伸腿也拿奖励。
+- `stairs_up_wheel_support=10`：落台阶段双轮首次同时落在上台面，且各自有真实的向上台面接触力时发一次奖励；
+  单轮、侧壁接触或仅腾空越沿不算支撑。
+
+前摆、伸腿奖励不乘 `dt`，仅奖励超过历史峰值的增量，各项每回合最多发其配置权重。
+进入该阶段前已有的前摆和伸长量不补奖，反复伸缩或前后摆不能重复领奖。
+同拍失败不发正奖励，部分 reset 仅清空相应环境的阶段、基准和峰值。
+这三项奖励均为零或未配置时不启用新阶段，旧存档保持原有收腿切换行为。
+
+双轮第一次同时落在顶部台面，当拍后永久关闭该回合前摆与伸腿引导，不等稳定站立或最终成功。
 判定要求双轮都有接触、轮心进入台面至少 `wheel_edge_margin_m=0.01 m`、位于赛道范围内，
 且轮底距顶部台面不超过 `wheel_bottom_tolerance_m=0.005 m`；单轮落台、腾空越沿均不触发。
 双轮落台后，任一轮底低于台面超过 `fall_height_tolerance_m=0.03 m` 就当拍按失败终止，
@@ -273,6 +320,9 @@ TensorBoard 新增 `task/stairs_up/support_reached`、`task/stairs_up/retract_re
 以及 `reward_stairs_up_support`、`reward_stairs_up_retract`、`reward_stairs_up_approach_lift`、
 `reward_stairs_up_backswing`、`reward_stairs_up_takeoff`、`reward_stairs_up_landing_distance`、
 `reward_stairs_up_wheel_wall_force` 奖励统计。
+落台引导还记录 `task/stairs_up/landing_phase_reached`、`forward_swing_progress`、
+`extension_progress` 和 `wheel_support_reached`，后三项同样使用 `task/stairs_up/` 前缀。
+对应奖励统计为 `reward_stairs_up_forward_swing`、`reward_stairs_up_extend` 和 `reward_stairs_up_wheel_support`。
 
 使用当前任务配比开启新训练（保留其他已启用任务及 locomotion）：
 

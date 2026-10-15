@@ -18,9 +18,9 @@ from .env import MultiTerrainEnv
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Task-driven multi-terrain training; edit multi_terrain/config.py for per-task settings")
-    parser.add_argument("-e", "--exp_name", default="multi_terrain_v2")
+    parser.add_argument("-e", "--exp_name", default="multi_terrain_v3")
     parser.add_argument("-B", "--num_envs", type=int, default=4096)
-    parser.add_argument("--max_iterations", type=int, default=5001)
+    parser.add_argument("--max_iterations", type=int, default=3001)
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--log-root", default="logs")
     parser.add_argument("-v", "--vis", action="store_true")
@@ -44,6 +44,10 @@ def main(argv=None):
         resume_plan = resolve_resume_plan(args.log_root, args.exp_name, args.resume, args.checkpoint)
         if args.resume_config == "saved":
             configs = deepcopy(load_run_configs(resume_plan.source_run_dir))
+    if resume_plan is not None and args.resume_config == "saved":
+        print(f"[train] config: saved in {resume_plan.source_run_dir}")
+    else:
+        print("[train] config: config.py")
     env_cfg, obs_cfg = configs["env_cfg"], configs["obs_cfg"]
     if "multi_terrain" not in env_cfg:
         parser.error("saved run is not multi_terrain; use --load-weights to transfer locomotion weights")

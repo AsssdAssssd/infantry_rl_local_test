@@ -112,7 +112,7 @@ def validate_stage(name, stage):
     ascent = stage.get("ascent", {})
     ascent_keys = {
         "approach_distance_m", "approach_clearance_m",
-        "backswing_angle_deg",
+        "backswing_angle_deg", "forward_swing_angle_deg", "landing_extension_m",
         "support_duration_s", "support_force_n", "support_normal_z", "support_surface_tolerance_m",
         "support_margin_m", "retract_shortening_m", "wheel_edge_margin_m", "wheel_bottom_tolerance_m",
         "fall_height_tolerance_m",
@@ -131,8 +131,11 @@ def validate_stage(name, stage):
         raise ValueError("ascent.wall_normal_z_max must be < 1")
     if ascent.get("backswing_angle_deg", 20.0) >= 90:
         raise ValueError("ascent.backswing_angle_deg must be < 90")
+    if ascent.get("forward_swing_angle_deg", 20.0) >= 90:
+        raise ValueError("ascent.forward_swing_angle_deg must be < 90")
     for key in ("stairs_up_support", "stairs_up_retract", "stairs_up_takeoff", "stairs_up_landing_distance",
-                "stairs_up_approach_lift", "stairs_up_backswing"):
+                "stairs_up_approach_lift", "stairs_up_backswing", "stairs_up_forward_swing",
+                "stairs_up_extend", "stairs_up_wheel_support"):
         scale = stage["rewards"].get(key, 0.0)
         if scale < 0 or (scale != 0 and (name != "stairs_up" or stage["terrain"]["preset"] != "stairs_up")):
             raise ValueError(f"{key} requires stairs_up on stairs_up terrain and a nonnegative weight")
@@ -185,21 +188,62 @@ def allocate_counts(tasks, num_envs, weights=None):
     return counts
 
 
+def resolve_task_command_ranges(tasks, overrides):
+    """合并全局阶段命令覆盖；保留任务/难度快照，顺序与 TaskTerrain.stages 一致。"""
+    if not isinstance(overrides, dict) or set(overrides) - set(TASK_NAMES):
+        raise ValueError("task_command_ranges must map known task names to command ranges")
+    allowed = {"lin_vel_range", "ang_vel_range", "base_height_range", "standing_probability"}
+    for name, values in overrides.items():
+        if not isinstance(values, dict) or set(values) - allowed:
+            raise ValueError(f"{name}: task_command_ranges only supports {sorted(allowed)}")
+        for key, value in values.items():
+            if key == "standing_probability":
+                if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not 0 <= value <= 1:
+                    raise ValueError(f"{name}: standing_probability must be finite and in [0, 1]")
+            elif (not isinstance(value, (list, tuple)) or len(value) != 2
+                  or any(isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) for v in value)
+                  or value[0] > value[1]):
+                raise ValueError(f"{name}: invalid commands.{key}")
+            elif key == "base_height_range" and value[0] <= 0:
+                raise ValueError(f"{name}: base_height_range must be positive")
+            elif key == "lin_vel_range" and name != "locomotion" and value[0] <= 0:
+                raise ValueError(f"{name}: traversal commands must move forward")
+    commands = []
+    for name, task in tasks.items():
+        for stage in task["resolved_stages"]:
+            cfg = deepcopy(stage["commands"])
+            cfg.update(deepcopy(overrides.get(name, {})))
+            validate_stage(name, {**stage, "commands": cfg})
+            high_speed = cfg.get("high_speed_ang_vel")
+            if high_speed is not None:
+                lower, upper = cfg["ang_vel_range"]
+                limit = high_speed["max_abs_ang_vel"]
+                if max(lower, -limit) > min(upper, limit):
+                    raise ValueError(f"{name}: ang_vel_range must overlap the high-speed angular velocity limits")
+            commands.append(cfg)
+    return commands
+
+
 def initial_task_counts(tasks, num_envs, curriculum_cfg=None):
-    """场景构建前校验全部阶段配额，返回第 0 轮的任务分配。"""
+    """场景构建前校验全部阶段配额与命令，返回第 0 轮的任务分配。"""
     curriculum = CurriculumManager(curriculum_cfg)
     initial = allocate_counts(tasks, num_envs)
-    allowed_targets = {"domain_rand", "sensor_noise", "task_weights"}
+    allowed_targets = {"domain_rand", "sensor_noise", "task_weights", "task_command_ranges"}
     weights = {}
+    command_ranges = {}
     for stage in curriculum.stages:
         targets = stage.get("targets", {})
         if set(targets) - allowed_targets:
-            raise ValueError("multi_terrain global curriculum only controls domain_rand/sensor_noise/task_weights")
+            raise ValueError("multi_terrain global curriculum only controls domain_rand/sensor_noise/task_weights/task_command_ranges")
         changes = targets.get("task_weights", {})
         if not isinstance(changes, dict):
             raise ValueError("task_weights must map known task names to weights")
         weights.update(changes)
         counts = allocate_counts(tasks, num_envs, weights)
+        changes = targets.get("task_command_ranges", {})
+        resolve_task_command_ranges(tasks, changes)
+        _deep_update(command_ranges, changes)
+        resolve_task_command_ranges(tasks, command_ranges)
         if curriculum.enabled and stage["start_iteration"] == 0:
             initial = counts
     return initial
