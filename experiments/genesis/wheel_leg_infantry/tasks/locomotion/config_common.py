@@ -86,7 +86,8 @@ def get_obs_cfg() -> dict:
             "link_name": "base_link",
             "pos_offset": [0.0, 0.0, 0.0],
         },
-        # True: (32 + 4 * history_frames)D actor；False: 32D actor，供 jump warmup。
+        # actions / last_actions 各 6D，整块并列，位于 ToF 前。
+        # True: (38 + 4 * history_frames)D actor；False: 38D actor，供 jump warmup。
         "tof": default_tof_cfg(
             include_in_observation=True,
             history_frames=3,

@@ -72,7 +72,6 @@ class MujocoJumpEnv:
         self.sim.cfg.update(deepcopy(self.motor_defaults))
         self.mode = "locomotion"
         self.jump_step = 0
-        self.last_actions = torch.zeros(6)
         self.has_taken_off = self.has_landed = False
         self.takeoff_contact_vz = 0.0
         self.peak_clearance = 0.0
@@ -113,7 +112,7 @@ class MujocoJumpEnv:
     def jump_observations(self):
         prefix = self.sim.observations()["policy"]
         phase = phase_encoding(torch.tensor([self.jump_step * self.dt]), self.cycle_s)
-        return TensorDict({"policy": torch.cat((prefix, self.last_actions[None], phase), dim=-1)}, batch_size=[1])
+        return TensorDict({"policy": torch.cat((prefix, phase), dim=-1)}, batch_size=[1])
 
     def observations(self):
         self._update_commands()
@@ -131,8 +130,7 @@ class MujocoJumpEnv:
         self.takeoff_contact_vz = 0.0
         self.peak_clearance = max(0.0, self.clearance)
         self.last_result = None
-        # At begin_jump_rollout Genesis has already copied actions into last_actions.
-        self.last_actions = self.sim.actions.clone()
+        # Preserve both action frames across the handoff, matching Genesis.
         self.sim.cfg.update(deepcopy(self.motor_jump))
         self._update_commands()
         return True
@@ -148,10 +146,7 @@ class MujocoJumpEnv:
 
     def step(self, action):
         self._update_commands()
-        previous_actions = self.sim.actions.clone()
         self.sim.step(action)
-        # Returned Genesis jump obs contains a_t in actions and a_(t-1) in last_actions.
-        self.last_actions = previous_actions
         self._read_contacts()
         if self.mode == "jump":
             self.jump_step += 1

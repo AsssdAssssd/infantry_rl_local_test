@@ -93,6 +93,11 @@ class MultiTerrainEnv(MultiTerrainRewards, LocomotionEnv):
     def _value(self, name):
         return self.tables[name][self.terrain_tile_index]
 
+    def _task_progress_position(self, wheels):
+        # 上台阶以双轮中心为进度参考，避免轮子不动时机身前倾也获得前进奖励。
+        world_x = torch.where(self.stairs_up_buffers.task_mask, wheels[..., 0].mean(dim=1), self.base_pos[:, 0])
+        return (world_x - self.terrain_spawn_centers[:, 0]) * self._value("direction")
+
     def _reset_task_buffers(self, env_idx):
         # 通用回合状态。
         ids = slice(None) if env_idx is None else env_idx
@@ -101,7 +106,8 @@ class MultiTerrainEnv(MultiTerrainRewards, LocomotionEnv):
             [name == "stairs_down" for name in self.tasks], device=self.device)[self.task_ids[ids]]
         self.stairs_up_buffers.task_mask[ids] = torch.tensor(
             [name == "stairs_up" for name in self.tasks], device=self.device)[self.task_ids[ids]]
-        self.farthest_x[ids] = (self.base_pos[ids, 0] - self.terrain_spawn_centers[ids, 0]) * self._value("direction")[ids]
+        wheels = self.robot.get_links_pos(self.wheel_links_idx)
+        self.farthest_x[ids] = self._task_progress_position(wheels)[ids]
         self.episode_start_x[ids] = self.farthest_x[ids]
         self.progress_anchor[ids] = self.farthest_x[ids]
         self.progress[ids] = 0
@@ -142,13 +148,13 @@ class MultiTerrainEnv(MultiTerrainRewards, LocomotionEnv):
         self.task_steps += 1
         local = self.base_pos[:, :2] - self.terrain_spawn_centers
         direction = self._value("direction")
-        x = torch.minimum(local[:, 0] * direction, self._value("goal_x") * direction)
+        wheels = self.robot.get_links_pos(self.wheel_links_idx)
+        x = torch.minimum(self._task_progress_position(wheels), self._value("goal_x") * direction)
         self.progress.copy_((x - self.farthest_x).clamp_min(0) * self.traversal)
         self.farthest_x.copy_(torch.maximum(self.farthest_x, x))
         advanced = self.farthest_x - self.progress_anchor >= self._value("progress_epsilon")
         self.progress_anchor.copy_(torch.where(advanced, self.farthest_x, self.progress_anchor))
         self.stall_steps.copy_(torch.where(advanced, 0, self.stall_steps + 1))
-        wheels = self.robot.get_links_pos(self.wheel_links_idx)
         wheel_heights = self.terrain.height_at(wheels[:, :, :2].reshape(-1, 2)).reshape(self.num_envs, 2)
         wheel_clear = ((wheels[:, :, 0] - self.terrain_spawn_centers[:, :1]) * direction[:, None]
                        >= (self._value("obstacle_end") * direction + self._value("wheel_clearance_m"))[:, None]).all(dim=1)

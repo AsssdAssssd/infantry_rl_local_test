@@ -599,6 +599,8 @@ class LocomotionEnv(LocomotionRewards):
             self.global_step += 1
 
         ########### 执行动作 ###########
+        # 接收下一拍动作时再推进历史；重复读取/组装观测不能改变两拍动作。
+        self.last_actions.copy_(self.actions)
         joint_actions = torch.clip(
             actions[:, : self.num_joints],
             -self.env_cfg["clip_joint_action"],
@@ -740,9 +742,6 @@ class LocomotionEnv(LocomotionRewards):
 
         ########### 更新观测值 ###########
         self._update_observations()
-
-        ########### 更新旧值 ###########
-        self.last_actions.copy_(self.actions)
 
         return self.get_observations(), self.reward_buf, self.reset_buf, self.extras
 
@@ -1164,6 +1163,7 @@ class LocomotionEnv(LocomotionRewards):
             "leg_length": self.measured_leg_length * self.obs_scales["leg_length"],  # 2
             "leg_angle": self.measured_leg_angle * self.obs_scales["leg_angle"],  # 2
             "actions": self.actions,
+            "last_actions": self.last_actions,  # 6，与 actions 同顺序的前一拍裁剪动作
             **({"tof_distance": self.tof_history.observation()} if self.tof_cfg["include_in_observation"] else {}),
             **self._get_task_observation_components(),
         }

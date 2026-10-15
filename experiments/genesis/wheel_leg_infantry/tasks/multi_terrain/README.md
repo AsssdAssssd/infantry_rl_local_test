@@ -211,6 +211,11 @@ def _get_curriculum_cfg():
 `stairs_up` 在现有水平进度奖励之外增加靠近时抬升、搭接前后摆、稳定支撑后缩腿的增量奖励，以及稳定搭台事件奖励。
 参数集中在 `config.py` 的 `tasks["stairs_up"]["ascent"]`。
 
+上台阶的水平进度以左右轮心平均位置为准，reset 时也以该位置记录起点；
+轮子不动而 baselink 向前倾倒不会产生前进奖励，也不会重置停滞计时。
+历史最远进度和 `progress_m` 使用同一参考，往返不重复领奖，进度最多计到终点。
+其余通关任务仍以 baselink 水平位置计算进度，最终成功条件保持原有机身、双轮及姿态要求。
+
 `stairs_up_approach_lift=2`：机体原点在第一级台阶前 `approach_distance_m=0.35 m` 内，
 双轮仍在下方地面接触、底盘没有接触且尚未获得搭接奖励、roll/pitch 满足成功姿态门限时，
 对底盘下底面向“眼前台阶顶面高度 + `approach_clearance_m=0.01 m`”的新增抬升发奖。

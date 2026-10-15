@@ -91,7 +91,7 @@ def get_cfgs():
             standing_drift=-3.0,
             gated_tracking_lin_vel=5.0,
             gated_tracking_ang_vel=7.0,
-            base_balance=-20.0,
+            base_balance=-30.0,
             leg_symmetry=-10.0,
             leg_angle_limits=-5.0,
             leg_symmetry_bonus=1.0,

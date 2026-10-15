@@ -8,10 +8,10 @@
 | step_20cm | `[0, 1, 0]` | 0.20 m |
 | step_40cm | `[0, 0, 1]` | 0.40 m |
 
-actor 为 47D，最后 3D 是任务 mode。locomotion teacher 读取前 32D。
+actor 为 47D，最后 3D 是任务 mode。locomotion teacher 读取前 38D（包含 actions 和 last_actions）。
 critic 为 66D，额外可见边缘距离和落稳进度；actor 不读取位置、台阶距离或 ToF。
 训练 warmup teacher 时，将 locomotion 的 `tof.include_in_observation` 设为 `False`；
-已有兼容的 32D teacher 也可继续使用。包含 ToF 观测的 teacher 会在加载前被拒绝。
+使用重新训练的 38D teacher。包含 ToF 观测的 teacher 会在加载前被拒绝。
 速度估计已从观测中删除；旧输入维度的 checkpoint 不能直接加载，需重新训练 locomotion teacher 和 jump。
 动作空间保持原来的 4 个腿关节 + 2 个轮子。
 

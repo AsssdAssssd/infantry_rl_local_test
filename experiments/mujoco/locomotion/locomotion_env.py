@@ -108,6 +108,7 @@ class MujocoLocomotionEnv:
             if self.model.jnt_type[j] in (mujoco.mjtJoint.mjJNT_HINGE, mujoco.mjtJoint.mjJNT_SLIDE):
                 self.data.qpos[self.model.jnt_qposadr[j]] = self.cfg["default_joint_pos"].get(self.model.joint(j).name, 0)
         self.actions = torch.zeros(6)
+        self.last_actions = torch.zeros(6)
         self.estimated_velocity = torch.zeros(1)
         self.acc = torch.zeros(3)
         self.gyro = torch.zeros(3)
@@ -149,6 +150,7 @@ class MujocoLocomotionEnv:
                                              self.cfg.get("leg_lower_link_length", .25)) * s["leg_length"],
             "leg_angle": compute_leg_angle(q, self.front, self.rear) * s["leg_angle"],
             "actions": self.actions,
+            "last_actions": self.last_actions,
         }
         if self.tof_cfg["include_in_observation"]:
             self.components["tof_distance"] = self.tof_history.observation()
@@ -163,7 +165,8 @@ class MujocoLocomotionEnv:
             raise ValueError("Policy action must contain six finite values")
         clipped = torch.cat((action[:4].clamp(-self.cfg["clip_joint_action"], self.cfg["clip_joint_action"]),
                              action[4:].clamp(-self.cfg["clip_wheel_action"], self.cfg["clip_wheel_action"])))
-        executed = self.actions if self.cfg["simulate_action_latency"] else clipped
+        self.last_actions.copy_(self.actions)
+        executed = self.last_actions if self.cfg["simulate_action_latency"] else clipped
         target_joint = self.default + executed[:4] * self.cfg["joint_pos_scale"]
         if self.constrain_leg_targets_enabled:
             limits = self.cfg.get("leg_angle_limit_range", [-np.pi / 4, np.pi / 4])
