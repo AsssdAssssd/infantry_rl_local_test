@@ -1,11 +1,6 @@
-"""rotate（旋转平移）任务配置：在 locomotion 基础上加入可控云台 yaw。
+"""Rotate：六维底盘动作、独立云台伺服、方向与速度组成二维平移命令。
 
-设计：
-- 复用 locomotion 的全部机器人/地形/随机化/奖励/课程配置；
-- 机器人换成带 gimbal_yaw_joint 的模型；
-- 把 gimbal_yaw_joint 追加进 joint_names（这样父类的动作管道自动变成 7 维）；
-- 增加第 4 条命令 [vx, wz, base_height, gimbal_yaw_rate]；
-- 课程后期逐步放开云台速率，前期锁 0 先学“云台保持世界朝向”和多向平移走。
+训练固定云台 yaw 速率为零；平移方向相对云台参考系均匀采样 [-pi, pi]。
 """
 
 from __future__ import annotations
@@ -53,10 +48,12 @@ def get_cfgs(locomotion_cfgs=None):
     obs_cfg["obs_scales"]["gimbal_yaw_vel"] = 1.0 / math.pi
 
     obs_cfg["obs_scales"]["gimbal_pitch_angle"] = 1.0 / math.pi
+    obs_cfg["obs_scales"]["translation_direction"] = 1.0  # 原始角度不进入 actor；sin/cos 无需缩放
 
     # ---------- 命令：追加云台速率 ----------
-    command_cfg["num_commands"] = 4
-    command_cfg["gimbal_yaw_vel_range"] = [-1.0, 1.0] #TODO 这里其他的参数还是原来的，但小陀螺差异比较大，后面记得显示更改
+    command_cfg["num_commands"] = 5
+    command_cfg["translation_direction_range"] = [-math.pi, math.pi]
+    command_cfg["gimbal_yaw_vel_range"] = [0.0, 0.0] #TODO 这里其他的参数还是原来的，但小陀螺差异比较大，后面记得显示更改
 
     # ---------- 消融开关：ROTATE_ABLATION=1 时，只换机器人，奖励/课程全用 main 的 ----------
     if os.environ.get("ROTATE_ABLATION"):
@@ -144,6 +141,7 @@ def _curriculum_cfg() -> dict:
                         "ang_vel_range": [-0.0, 0.0],
                         "base_height_range": [0.20, 0.24],
                         "gimbal_yaw_vel_range": [-0.0, 0.0],
+                        "translation_direction_range": [0,0],
                     },
                 },
             },
@@ -205,6 +203,7 @@ def _curriculum_cfg() -> dict:
                         "ang_vel_range": [-3.0, 3.0],
                         "base_height_range": [0.20, 0.30],
                         "gimbal_yaw_vel_range": [-0.0, 0.0],
+                        "translation_direction_range": [-math.pi/4,math.pi/4],
 
                     },
                     "tracking_gate": {
@@ -243,7 +242,8 @@ def _curriculum_cfg() -> dict:
                         "lin_vel_range": [0.0, 1.0],
                         "ang_vel_range": [-6.0, 6.0],
                         "base_height_range": [0.20, 0.34],
-                        "gimbal_yaw_vel_range": [-0.2, 0.2],
+                        "gimbal_yaw_vel_range": [0.0, 0.0],
+                        "translation_direction_range": [-math.pi/2,math.pi/2],
 
                     },
                     "tracking_gate": {
@@ -287,7 +287,8 @@ def _curriculum_cfg() -> dict:
                         "lin_vel_range": [0.0, 0.75],
                         "ang_vel_range": [-10.0, 10.0],
                         "base_height_range": [0.20, 0.36],
-                        "gimbal_yaw_vel_range": [-0.4, 0.4],
+                        "gimbal_yaw_vel_range": [0.0, 0.0],
+                        "translation_direction_range": [-math.pi/2,math.pi/2],
 
                     },
                     "tracking_gate": {
@@ -330,7 +331,8 @@ def _curriculum_cfg() -> dict:
                         "lin_vel_range": [0.0, 0.75],
                         "ang_vel_range": [-13.0, 13.0],
                         "base_height_range": [0.20, 0.36],
-                        "gimbal_yaw_vel_range": [-0.4, 0.4],
+                        "gimbal_yaw_vel_range": [0.0, 0.0],
+                        "translation_direction_range": [-math.pi,math.pi],
                     },
                     "reward_scales": {},
                 },

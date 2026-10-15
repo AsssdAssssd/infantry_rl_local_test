@@ -1,14 +1,8 @@
-"""rotate 任务环境：在 LocomotionEnv 上挂一个可控云台 yaw。
+"""Rotate：四腿两轮策略 + 独立 yaw/pitch 云台伺服。
 
-思路（“只增不改”）：
-- gimbal_yaw_joint 已经作为第 5 个关节放进 joint_names，所以父类的动作/PD/关节管道
-  自动变成 5 关节 + 2 轮 = 7 维，无需改父类；
-- 云台的“世界 yaw 保持”用父类的任务扩展点实现：
-  * _apply_task_control：把 actor 输出解释成“世界 yaw 目标”，用增量式关节目标伺服；
-  * _update_task_state：读关节角、算云台世界 yaw、积分参考角；
-  * _get_task_observation_components：把云台朝向/相对角/误差喂给 actor；
-  * _reset_task_buffers：重置云台 buffer 与参考角；
-- 命令从 [vx, wz, height] 扩展为 [vx, wz, height, gimbal_yaw_rate]。
+新命令为 [speed, base_wz, height, gimbal_yaw_rate, translation_direction]。
+方向相对云台参考 yaw，原始弧度只用于采样，actor 读取 sin/cos。
+旧四维命令配置保留向前平移语义，便于评估历史 run。
 """
 
 from __future__ import annotations
@@ -74,36 +68,61 @@ class RotateEnv(RotateRewards, LocomotionEnv):
         self.robot.set_dofs_kv(kd.tolist(), self.gimbal_dof_idx)
         self.robot.set_dofs_force_range([-8.0, -8.0], [8.0, 8.0], self.gimbal_dof_idx)
 
-    # ============ 命令管道：从 3 维扩到 4 维（追加云台速率） ============
+    # ============ 命令管道：五维命令，方向以 sin/cos 单独提供给 actor ============
+
+    def _has_direction_command(self):
+        # 旧 run 的四维命令仍可用于评估；新训练使用五维命令。
+        return self.command_cfg["num_commands"] == 5
 
     def _build_commands_scale(self):
+        scales = [
+            self.obs_scales["lin_vel"],
+            self.obs_scales["ang_vel"],
+            self.obs_scales["base_height"],
+            self.obs_scales["gimbal_yaw_vel"],
+        ]
+        if self._has_direction_command():
+            scales.append(self.obs_scales.get("translation_direction", 1.0))
         return torch.tensor(
-            [
-                self.obs_scales["lin_vel"],
-                self.obs_scales["ang_vel"],
-                self.obs_scales["base_height"],
-                self.obs_scales["gimbal_yaw_vel"],
-            ],
+            scales,
             dtype=gs.tc_float,
             device=self.device,
         )
 
     def _build_command_limits(self):
         lower, upper = super()._build_command_limits()
-        gimbal_range = self.command_cfg["gimbal_yaw_vel_range"]
-        extra_lower = torch.tensor([gimbal_range[0]], dtype=gs.tc_float, device=self.device)
-        extra_upper = torch.tensor([gimbal_range[1]], dtype=gs.tc_float, device=self.device)
+        if self._has_direction_command():
+            ranges = [self.command_cfg["gimbal_yaw_vel_range"],self.command_cfg["translation_direction_range"]]
+        else:
+            ranges = [self.command_cfg["gimbal_yaw_vel_range"]]
+        extra_lower = torch.tensor([r[0] for r in ranges], dtype=gs.tc_float, device=self.device)
+        extra_upper = torch.tensor([r[1] for r in ranges], dtype=gs.tc_float, device=self.device)
         return torch.cat([lower, extra_lower]), torch.cat([upper, extra_upper])
 
-    def _apply_command_ranges(self, values): #course
+    def _apply_command_ranges(self, values):
         values = dict(values)
+        direction = values.pop("translation_direction_range", None)
+        if direction is not None:
+            if (len(direction) != 2 or not all(math.isfinite(float(x)) for x in direction)
+                or not -math.pi <= direction[0] <= direction[1] <= math.pi):
+                raise ValueError("translation_direction_range must lie within [-pi, pi]")
+            self.command_cfg["translation_direction_range"] = list(direction)
         gimbal = values.pop("gimbal_yaw_vel_range", None)
         if gimbal is not None:
             if len(gimbal) != 2 or gimbal[0] > gimbal[1]:
                 raise ValueError("gimbal_yaw_vel_range must be [lower, upper]")
             self.command_cfg["gimbal_yaw_vel_range"] = list(gimbal)
-        # 父类会用（我们重写的）_build_command_limits 重建采样上下限。
         super()._apply_command_ranges(values)
+
+    def _get_command_observation_components(self):
+        # 不把有 ±pi 接缝的原始角度喂给网络，也不挪动原有四条命令。
+        return {"commands": self.commands[:, :4] * self.commands_scale[:4]}
+
+    def get_translation_direction(self):
+        """相对云台参考 yaw：0 前、+pi/2 左、-pi/2 右、pi 后。"""
+        if self._has_direction_command():
+            return self.commands[:, 4]
+        return torch.zeros_like(self.commands[:, 0])
 
     # ============ 云台控制与状态（父类任务扩展点） ============
 
@@ -148,18 +167,21 @@ class RotateEnv(RotateRewards, LocomotionEnv):
         base_yaw = torch.deg2rad(self.base_euler[:, 2])
         rel = _wrap(self.gimbal_world_yaw - base_yaw)  # base → gimbal 相对角
         err = _wrap(self.gimbal_yaw_ref - self.gimbal_world_yaw)  # 离目标还差多少
+        direction = self.get_translation_direction()
         return {
-            # "gimbal_yaw_joint": (self.gimbal_world_yaw * self.obs_scales["gimbal_yaw_angle"]).unsqueeze(-1),  # 1
+            **({"translation_direction": torch.stack(
+                [torch.sin(direction), torch.cos(direction)], dim=-1)
+            } if self._has_direction_command() else {}), #前面只味4个            # "gimbal_yaw_joint": (self.gimbal_world_yaw * self.obs_scales["gimbal_yaw_angle"]).unsqueeze(-1),  # 1
             "gimbal_yaw_2_base_angle": torch.stack([torch.sin(rel), torch.cos(rel)], dim=-1),  # 2
             # "gimbal_yaw_error": torch.stack([torch.sin(err), torch.cos(err)], dim=-1),  # 2
-            "gimbal_yaw_abs_vel": (
-                self.gimbal_yaw_abs_vel * self.obs_scales["gimbal_yaw_vel"]
-            ).unsqueeze(-1),  # 1
+            # "gimbal_yaw_abs_vel": (
+            #     self.gimbal_yaw_abs_vel * self.obs_scales["gimbal_yaw_vel"]
+            # ).unsqueeze(-1),  # 1
             # 前向速度估计（IMU 比力 + 轮速互补滤波，赛博真机接口）。base 系 x 分量；
             # 本车非完整约束，base 横向≈0，故策略可用 cos(rel) 投到云台系前向。
-            "estimated_forward_vel": (
-                self.estimated_base_lin_vel * self.obs_scales["lin_vel"]
-            ).unsqueeze(-1),  # 1       ？ TODO
+            # "estimated_forward_vel": (
+            #     self.estimated_base_lin_vel * self.obs_scales["lin_vel"]
+            # ).unsqueeze(-1),  # 1       ？ TODO这个后续好像都不用了
         }
 
     def _get_task_privileged_observation_components(self):
@@ -167,6 +189,7 @@ class RotateEnv(RotateRewards, LocomotionEnv):
             "privileged_gimbal_world_yaw": self.gimbal_world_yaw.unsqueeze(-1),
             "privileged_gimbal_yaw_ref": self.gimbal_yaw_ref.unsqueeze(-1),
             "privileged_base_height": (self.base_height * self.obs_scales["base_height"]).unsqueeze(-1),
+        #方向和速度的质量都给critical来评测
         }
 
     # ============ 诊断 ============

@@ -18,7 +18,8 @@ class RotateRewards:
     # ---------- 覆盖：在“云台系”里跟踪整个水平速度向量（大小 + 方向） ----------
     def _base2gimbal_lin_vel(self) -> torch.Tensor:
         world_vel_xy = torch.clamp(self.robot.get_vel()[:, :2], -5.0, 5.0)  # (N,2) 世界系水平速度，限幅防数值爆炸
-        psi = self.gimbal_yaw_ref # 目标云台世界朝向 (N,)（其实从设计 逻辑上我是希望追中实际的gimbal朝向的，但是好想追不上（20、0.6），，，要不要改成ref呢）
+        # 将测量速度投到目标平移方向及其左侧法向，所有跟踪项共享方向语义。
+        psi = self.gimbal_yaw_ref + self.get_translation_direction()
         v_forward=torch.cos(psi)*world_vel_xy[:,0]+torch.sin(psi)*world_vel_xy[:,1]
         v_vertical=torch.cos(psi)*world_vel_xy[:,1]-torch.sin(psi)*world_vel_xy[:,0]
 
@@ -27,7 +28,7 @@ class RotateRewards:
 
     def _rotate_lin_vel_error(self) -> torch.Tensor:
         v_forward ,v_vertical=self._base2gimbal_lin_vel()
-        # 云台系里期望速度向量 = [vx_cmd, 0]（沿云台朝向、无侧向）
+        # 目标方向坐标系中期望速度 = [speed_cmd, 0]
         target = torch.cat(
             [self.commands[:, 0:1], torch.zeros_like(self.commands[:, 0:1])], dim=-1
         )

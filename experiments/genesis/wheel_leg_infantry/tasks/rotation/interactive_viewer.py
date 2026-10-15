@@ -1,5 +1,7 @@
 """rotate eval 的键盘控制和 Viewer 实时诊断组件（在 locomotion 基础上加云台）。"""
 
+import math
+
 from genesis.ext.pyrender.constants import FONT_SIZE, TEXT_PADDING, TextAlign
 from genesis.vis.keybindings import Key, KeyAction, Keybind
 from genesis.vis.viewer_plugins import ViewerPlugin
@@ -46,6 +48,7 @@ class KeyboardCommand:
     def __init__(self, env):
         self.env = env
         self.lin_vel = 0.0
+        self.translation_direction = 0.0
         self.ang_vel = 0.0
         self.height_target = float(env.commands[0, 2].item())
         self.gimbal_yaw_vel = 0.0
@@ -58,6 +61,8 @@ class KeyboardCommand:
         self.viewer = viewer
         self.diagnostics_overlay = viewer.add_plugin(DiagnosticsOverlay())
         viewer.register_keybinds(
+            self._keybind("command_direction_left", Key.COMMA, self._change_direction, math.pi / 12),
+            self._keybind("command_direction_right", Key.PERIOD, self._change_direction, -math.pi / 12),
             self._keybind("command_forward", Key.UP, self._change_lin, self.lin_step),
             self._keybind("command_backward", Key.DOWN, self._change_lin, -self.lin_step),
             self._keybind("command_turn_left", Key.LEFT, self._change_ang, self.ang_step),
@@ -89,6 +94,14 @@ class KeyboardCommand:
         lower, upper = self.env.command_cfg["lin_vel_range"]
         self.lin_vel = min(max(self.lin_vel + amount, lower), upper)
 
+    def _change_direction(self, amount):
+        if not self.env._has_direction_command():
+            return
+        angle = math.atan2(math.sin(self.translation_direction + amount),
+                           math.cos(self.translation_direction + amount))
+        lower, upper = self.env.command_cfg["translation_direction_range"]
+        self.translation_direction = min(max(angle, lower), upper)
+
     def _change_ang(self, amount):
         lower, upper = self.env.command_cfg["ang_vel_range"]
         self.ang_vel = min(max(self.ang_vel + amount, lower), upper)
@@ -112,6 +125,8 @@ class KeyboardCommand:
         self.env.commands[:, 1] = self.ang_vel
         self.env.commands[:, 2] = self.height_target
         self.env.commands[:, 3] = self.gimbal_yaw_vel
+        if self.env._has_direction_command():
+            self.env.commands[:, 4] = self.translation_direction
 
     def update_caption(self):
         env = self.env
@@ -121,7 +136,7 @@ class KeyboardCommand:
         gimbal = env.get_rotate_diagnostics()
         text = (
             f"command  vx={self.lin_vel:+.2f} m/s  wz={self.ang_vel:+.2f} rad/s  "
-            f"height={self.height_target:.3f} m  gimbal={self.gimbal_yaw_vel:+.2f} rad/s",
+            f"direction={math.degrees(self.translation_direction):+.0f} deg  height={self.height_target:.3f} m  gimbal={self.gimbal_yaw_vel:+.2f} rad/s",
             f"state    vx_true={env.base_lin_vel[0, 0].item():+.2f} m/s  "
             f"vx_est={velocity['estimated_forward_velocity'].item():+.2f} m/s  "
             f"vx_world={env.robot.get_vel()[0,0].item():+.2f} m/s  "

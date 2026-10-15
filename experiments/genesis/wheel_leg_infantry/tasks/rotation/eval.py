@@ -133,7 +133,7 @@ def main():
     env.focus_viewer()
     keyboard = KeyboardCommand(env)
     keyboard.update_caption()
-    print("[eval] keys: UP/DOWN=vx  LEFT/RIGHT=wz  PAGEUP/DOWN=height  [ / ]=gimbal rate  SPACE=stop")
+    print("[eval] keys: UP/DOWN=vx  LEFT/RIGHT=wz  PAGEUP/DOWN=height  , / .=translation direction  [ / ]=gimbal rate  SPACE=stop")
     print_evaluation_diagnostics(env, step=0)
     step = 0
     with torch.no_grad():
