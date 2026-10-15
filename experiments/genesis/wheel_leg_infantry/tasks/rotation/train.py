@@ -24,6 +24,7 @@ from ...tools.run_utils import (
 )
 from .config import get_cfgs
 from .env import RotateEnv
+from .warm_start import validate_source, warm_start_actor
 from ...terrains.registry import level_catalog
 
 
@@ -37,10 +38,18 @@ def main():
     parser.add_argument("--terrain", choices=TERRAIN_PRESETS, default=None)
     parser.add_argument("--log-root", type=str, default="logs")
     parser.add_argument("--load-weights", type=Path, default=None)
+    parser.add_argument("--warm-start", type=Path, default=None,
+                        help="locomotion model_*.pt; cfgs.pkl must be in the same directory; actor only")
     add_randomization_arguments(parser, evaluation=False)
     add_resume_arguments(parser)
     args = parser.parse_args()
 
+    if args.warm_start is not None:
+        if args.resume is not None or args.load_weights is not None:
+            parser.error("--warm-start cannot be combined with --resume or --load-weights")
+        args.warm_start = args.warm_start.expanduser().resolve()
+        if not args.warm_start.is_file():
+            parser.error(f"Warm-start checkpoint does not exist: {args.warm_start}")
     if args.load_weights is not None and args.resume is not None:
         parser.error("--load-weights cannot be combined with --resume")
     if args.resume is None:
@@ -97,6 +106,13 @@ def main():
         "curriculum_cfg": curriculum_cfg,
         "train_cfg": train_cfg,
     }
+    source_configs = None
+    if args.warm_start is not None:
+        source_configs = load_run_configs(args.warm_start.parent)
+        validate_source(source_configs, configs)
+        configs["source_locomotion"] = {
+            "run_dir": str(args.warm_start.parent), "checkpoint": str(args.warm_start),
+        }
     run_arguments = vars(args).copy()
     if resume_plan is not None:
         run_arguments["resume_from"] = str(resume_plan.checkpoint_path.resolve())
@@ -122,6 +138,13 @@ def main():
         print(f"[rotate] resuming from: {resume_plan.checkpoint_path}")
         remaining_iterations = restore_training_state(runner, env, resume_plan, args.max_iterations)
         print(f"[rotate] continuing at iteration {resume_plan.next_iteration}; {remaining_iterations} iterations remain")
+    elif args.warm_start is not None:
+        report = warm_start_actor(runner.alg.get_policy(), args.warm_start,
+                                  source_configs, configs, env.obs_components)
+        configs["actor_warm_start"] = report.to_dict()
+        save_run_artifacts(run_dir, configs, run_arguments)
+        print(f"[rotate] actor warm-start: {args.warm_start}; {report}")
+        print("[rotate] critic and optimizer start fresh; command frame transfer is learned by PPO")
     elif args.load_weights is not None:
         runner.load(
             str(args.load_weights),

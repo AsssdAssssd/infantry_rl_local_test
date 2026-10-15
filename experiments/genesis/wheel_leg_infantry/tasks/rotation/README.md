@@ -16,3 +16,24 @@ actor 保留原四维 commands 观测，另加 `translation_direction=[sin(theta
 
 验证覆盖方向采样、课程切换、静止目标、四个基本方向、奖励投影、±pi 连续性、
 部分环境重采样及旧四维命令。不代表完成仿真训练验证。
+
+## Actor warm-start
+
+在项目根目录运行（来源 checkpoint 同目录必须有 `cfgs.pkl`）：
+
+```bash
+.venv/bin/python -m experiments.genesis.wheel_leg_infantry.tasks.rotation.train \
+  -e rotation_warm_start \
+  --warm-start log_shared/locomotion_v2/version_0011/model_10000.pt
+```
+
+只迁移 locomotion actor，不恢复 critic、optimizer、迭代数或来源课程。
+`--warm-start` 与 `--resume`、`--load-weights` 互斥；后续续训使用 `--resume`。
+第一层按实际 `env.obs_components` 字段布局映射；commands 仅复制原来的三列，
+新增云台命令、方向和云台夹角列置零，其余兼容层完整复制，所有参数仍可训练。
+支持 32D 无 ToF 来源及 ToF 配置完全一致的来源。检查动作顺序、动作缩放、
+观测缩放、网络结构与分布；暂不支持启用观测归一化的 actor。
+来源路径及映射报告保存在新 run 配置中。
+
+初始化输出等价只针对同一组公共输入。locomotion 的机身系速度命令与 rotate 的
+云台系速度命令语义不同，参考系变换需要后续 PPO 学习，不能保证初始二维跟踪能力。
