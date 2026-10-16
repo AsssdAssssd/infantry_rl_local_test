@@ -42,6 +42,15 @@ class MultiTerrainRewards:
     def _reward_stairs_up_wheel_support(self):
         return self.stairs_up_buffers.wheel_support_event & ~self.terminated_buf
 
+    def _reward_stairs_up_wheel_forward_action(self):
+        """双轮落台接地后，在不超过前向速度命令时鼓励轮子正转。"""
+        state = self.stairs_up_buffers
+        active = (state.task_mask & state.wheels_landed & (self.wheel_contact > 0.5).all(dim=1)
+                  & (self.commands[:, 0] > 0) & (self.base_lin_vel[:, 0] <= self.commands[:, 0])
+                  & ~state.fallen_off & ~self.terminated_buf)
+        wheel = slice(self.num_joints, self.num_joints + self.num_wheels)
+        return self.actions[:, wheel].clamp_min(0).mean(dim=1) * active
+
     def _reward_task_lateral(self):
         return (self.base_pos[:, 1] - self.terrain_spawn_centers[:, 1]).square()
 

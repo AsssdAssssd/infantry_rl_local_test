@@ -52,7 +52,20 @@ def _get_curriculum_cfg():
                 "targets": {
                     "domain_rand": {"strength": 1.0},
                     "sensor_noise": {"strength": 1.0},
-                    "task_command_ranges": {},
+                    "task_command_ranges": {
+                        "stairs_down": {
+                            "base_height_range": [0.22, 0.22],
+                        },
+                        "slope_up": {
+                            "base_height_range": [0.22, 0.22],
+                        },
+                        "slope_down": {
+                            "base_height_range": [0.22, 0.22],
+                        },
+                        "platform_ridge": {
+                            "base_height_range": [0.22, 0.22],
+                        },
+                    },
                 },
             },
         ],
@@ -140,9 +153,9 @@ def get_cfgs():
         weight=1.0,
         commands=dict(
             num_commands=3,
-            lin_vel_range=[1.0, 2.5],
+            lin_vel_range=[0.5, 2.5],
             ang_vel_range=[0.0, 0.0],
-            base_height_range=[0.31, 0.31],
+            base_height_range=[0.36, 0.36],
             standing_probability=0.0,
         ),
         rewards=dict(
@@ -153,11 +166,12 @@ def get_cfgs():
             stairs_up_takeoff=10.0,  # 双轮首次离开台下地面，一回合只奖励一次。
             stairs_up_landing_distance=10.0,  # 首轮触台距离奖励，单位为奖励/m，仅首次触台发放。
             stairs_up_wheel_wall_force=-0.2,  # 轮子撞立面的法向力总和（N），按 dt 积分。
-            stairs_up_approach_lift=10.0,
+            stairs_up_approach_lift=0.0,
             stairs_up_backswing=30.0,
             stairs_up_forward_swing=5.0,  # 轮子抬够后向前摆腿的新增进度，与伸腿同时引导。
             stairs_up_extend=5.0,  # 轮子位于台面上方时，新增伸腿长度的进度奖励。
             stairs_up_wheel_support=10.0,  # 落台阶段双轮首次真实接触上台面支撑，一回合一次。
+            stairs_up_wheel_forward_action=1.0,  # 双轮落台接地后、机身前向速度不超过 command 时奖励正转 action，按 dt 积分。
             task_lateral=-2.0,
             task_heading=-0.5,
             base_balance=-20.0,
@@ -171,8 +185,8 @@ def get_cfgs():
         traversal=dict(landing_length=0.8),
         termination=dict(
             episode_length_s=4.0,
-            termination_if_roll_greater_than=70.0,
-            termination_if_pitch_greater_than=70.0,
+            termination_if_roll_greater_than=30.0,
+            termination_if_pitch_greater_than=30.0,
             tilt_termination_duration_s=0.3,
             base_contact_termination_duration_s=10.0,
             corridor_half_width=1.0,
@@ -187,7 +201,7 @@ def get_cfgs():
         ),
         ascent=dict(
             # 接近台阶时的抬升与后摆引导。
-            approach_distance_m=0.05,  # 机体原点距台阶沿的范围（m）；抬升仅在沿前，后摆允许沿前后。
+            approach_distance_m=0.00,  # 非负距离（m）；抬升仅在沿前，触台前后摆允许沿前后，触台后后摆不受此限制。
             approach_clearance_m=0.01,  # 抬升目标：底盘碰撞体最低点高出台阶顶面的余量（m）。
             backswing_angle_deg=10.0,  # 虚拟腿后摆奖励的目标角度（°）；正值为后摆，达到后进度饱和。
             # 搭接奖励与收腿奖励共用；支撑中断后重新累计稳定时间。

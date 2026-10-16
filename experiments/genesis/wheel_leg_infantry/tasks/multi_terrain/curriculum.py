@@ -124,7 +124,11 @@ def validate_stage(name, stage):
     if ascent and (name != "stairs_up" or stage["terrain"]["preset"] != "stairs_up"):
         raise ValueError("ascent requires stairs_up on stairs_up terrain")
     for key, value in ascent.items():
-        positive(value, f"{name}.ascent.{key}")
+        if key == "approach_distance_m":
+            if isinstance(value, bool) or not math.isfinite(value) or value < 0:
+                raise ValueError(f"{name}.ascent.{key} must be finite and nonnegative")
+        else:
+            positive(value, f"{name}.ascent.{key}")
     if ascent.get("support_normal_z", 0.9) > 1:
         raise ValueError("ascent.support_normal_z must be <= 1")
     if ascent.get("wall_normal_z_max", 0.3) >= 1:
@@ -135,7 +139,7 @@ def validate_stage(name, stage):
         raise ValueError("ascent.forward_swing_angle_deg must be < 90")
     for key in ("stairs_up_support", "stairs_up_retract", "stairs_up_takeoff", "stairs_up_landing_distance",
                 "stairs_up_approach_lift", "stairs_up_backswing", "stairs_up_forward_swing",
-                "stairs_up_extend", "stairs_up_wheel_support"):
+                "stairs_up_extend", "stairs_up_wheel_support", "stairs_up_wheel_forward_action"):
         scale = stage["rewards"].get(key, 0.0)
         if scale < 0 or (scale != 0 and (name != "stairs_up" or stage["terrain"]["preset"] != "stairs_up")):
             raise ValueError(f"{key} requires stairs_up on stairs_up terrain and a nonnegative weight")

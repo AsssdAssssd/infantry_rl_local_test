@@ -16,7 +16,7 @@ from .env import MultiTerrainEnv
 
 def main(argv=None):
     parser = argparse.ArgumentParser()
-    parser.add_argument("-e", "--exp_name", default="multi_terrain_v1")
+    parser.add_argument("-e", "--exp_name", default="multi_terrain_v5")
     parser.add_argument("--log-root", default="logs")
     parser.add_argument("--version", default=None)
     parser.add_argument("--ckpt", type=int, default=None)

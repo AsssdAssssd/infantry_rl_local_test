@@ -207,10 +207,9 @@ class MultiTerrainEnv(MultiTerrainRewards, LocomotionEnv):
             & (contacts["normal"][..., 2].abs() >= cfg["support_normal_z"][:, None])
             & (self.base_pos[:, 2:3] > position[..., 2])
         )
-        # 首次轻触台面只关闭后摆引导；收腿须等待足够深度、受力和持续时间的稳定支撑。
+        # 记录首次轻触台面；后摆可持续到落台阶段，收腿仍须等待稳定支撑。
         touching_top = state.task_mask & (surface_contact & (force_z > 0)).any(dim=1)
         state.top_contact_seen |= touching_top
-        self._update_stairs_up_backswing(wheels, cfg)
         top_contact = surface_contact & (
             local_x >= (self._value("obstacle_end") + cfg["support_margin_m"])[:, None])
         upward_force = torch.where(top_contact, force_z.clamp_min(0), 0).sum(dim=1)
@@ -249,6 +248,8 @@ class MultiTerrainEnv(MultiTerrainRewards, LocomotionEnv):
         # 落台后允许向上弹跳；任一轮明显跌到台面以下即失败，无需等落到低处地面。
         below_top = (wheel_bottom < (cfg["top_height"] - cfg["fall_height_tolerance_m"])[:, None]).any(dim=1)
         state.fallen_off |= state.task_mask & state.wheels_landed & below_top
+        # 先更新前摆阶段和双轮落台，再计算后摆，保证阶段切换当拍互斥。
+        self._update_stairs_up_backswing(wheels, cfg)
 
         # 最终成功独立于中间奖励：直接登上台阶的策略也可以完成任务。
         standing = state.task_mask & self.success & quiet & (self.base_height >= cfg["standing_height_m"])
@@ -391,18 +392,19 @@ class MultiTerrainEnv(MultiTerrainRewards, LocomotionEnv):
         state.approach_peak_height.copy_(torch.maximum(state.approach_peak_height, height))
 
     def _update_stairs_up_backswing(self, wheels, cfg):
-        """底盘接触台面前的后摆增量，每条腿独立记录最高进度，合计最多 1。"""
+        """进入前摆阶段前的后摆增量；触台后不再要求接近距离或轮子尚未越沿。"""
         state = self.stairs_up_buffers
         local = self.base_pos[:, :2] - self.terrain_spawn_centers
         distance = cfg["approach_edge"] - local[:, 0]
         wheel_x = wheels[..., 0] - self.terrain_spawn_centers[:, :1]
         wheel_y = wheels[..., 1] - self.terrain_spawn_centers[:, 1:2]
+        approaching = ((distance.abs() <= cfg["approach_distance_m"])
+                       & (wheel_x < cfg["approach_edge"][:, None]).all(dim=1)
+                       & (self.base_contact < 0.5))
         eligible = (
-            state.task_mask & ~state.top_contact_seen & ~state.support_awarded
-            & (self.base_contact < 0.5) & ~self._tilt_failure()
-            & (distance.abs() <= cfg["approach_distance_m"])
+            state.task_mask & ~state.landing_started & ~state.wheels_landed & ~state.fallen_off
+            & (state.top_contact_seen | approaching) & ~self._tilt_failure()
             & (local[:, 1].abs() <= self._value("corridor_half_width"))
-            & (wheel_x < cfg["approach_edge"][:, None]).all(dim=1)
             & (wheel_y.abs() <= self._value("corridor_half_width")[:, None]).all(dim=1)
         )
         # 正腿角代表轮子相对机体向 -x 后摆；与机体世界俯仰角无关。
