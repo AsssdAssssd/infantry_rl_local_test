@@ -26,7 +26,7 @@ def _parse_args(argv=None):
     """解析并校验评估命令行参数。"""
     parser = argparse.ArgumentParser()
     add_randomization_arguments(parser, evaluation=True)
-    parser.add_argument("-e", "--exp_name", type=str, default="infantry_locomotion_v3")
+    parser.add_argument("-e", "--exp_name", type=str, default="locomotion_v5")
     parser.add_argument("--log-root", type=str, default="logs")
     parser.add_argument("--version", type=str, default=None, help="version_0003 or 3; default: latest valid run")
     parser.add_argument("--ckpt", type=int, default=None, help="checkpoint number; default: latest in selected run")
