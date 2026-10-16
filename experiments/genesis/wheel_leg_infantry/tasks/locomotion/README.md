@@ -51,10 +51,17 @@ Critic 包含相同动作历史。旧 checkpoint 不做输入适配，需要重�
 
 .venv/bin/python -m experiments.genesis.wheel_leg_infantry.tasks.locomotion.eval \
   -e locomotion_v4 --terrain square_wave --difficulty 2
+
+# 多地形训练的 checkpoint 也可使用同一交互评估入口
+.venv/bin/python -m experiments.genesis.wheel_leg_infantry.tasks.locomotion.eval \
+  -e multi_terrain_v4 --version 0 --ckpt 700
 ```
 
 评估使用课程最终命令范围，支持键盘命令、ToF 显示以及周期性观测和控制器诊断。
 `--version` / `--ckpt` 选择版本与 checkpoint；`--terrain-size LENGTH WIDTH` 覆盖地形尺寸。
+加载多地形 checkpoint 时，从保存的 locomotion 子任务提取命令范围、终止条件和默认地形，
+累计应用全局课程对该子任务的最终命令覆盖；仍可用 `--terrain` / `--difficulty` 切换测试地形。
+机器人、控制器、观测和网络结构沿用训练快照，评估只加载网络权重。
 
 ## 转入多任务训练
 
@@ -68,5 +75,5 @@ Critic 包含相同动作历史。旧 checkpoint 不做输入适配，需要重�
 ```
 
 旧多地形/上台阶专项 checkpoint 可以作为相同观测接口的权重来源，
-其配置和旧专项课程不会通过 locomotion 入口继续运行。
+其配置和旧专项课程不会通过 locomotion 训练入口继续运行。
 多任务完整续训与单任务评估使用 `multi_terrain.train` / `multi_terrain.eval`。

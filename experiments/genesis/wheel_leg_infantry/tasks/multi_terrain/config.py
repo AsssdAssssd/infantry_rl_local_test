@@ -19,50 +19,49 @@ def _get_curriculum_cfg():
                     "domain_rand": {"strength": 0.0},
                     "sensor_noise": {"strength": 0.0},
                     "task_weights": {
-                        "square_wave": 0.0,
                         "platform_ridge": 0.0,
-                        # "stairs_up": 0.0,
+                        "stairs_up": 0.0,
                     },
                 },
             },
-            # {
-            #     "name": "randomized",
-            #     "start_iteration": 100,
-            #     "targets": {
-            #         "domain_rand": {"strength": 0.4},
-            #         "sensor_noise": {"strength": 0.4},
-            #         "task_weights": {
-            #             "platform_ridge": 1.0,
-            #             "stairs_down": 0.5,
-            #             "slope_down": 0.5,
-            #         },
-            #     },
-            # },
-            # {
-            #     "name": "full",
-            #     "start_iteration": 1000,
-            #     "targets": {
-            #         "domain_rand": {"strength": 1.0},
-            #         "sensor_noise": {"strength": 1.0},
-            #         "task_weights": {
-            #             "stairs_up": 1.0,
-            #         },
-            #         "task_command_ranges": {
-            #             "stairs_down": {
-            #                 "base_height_range": [0.22, 0.22],
-            #             },
-            #             "slope_up": {
-            #                 "base_height_range": [0.22, 0.22],
-            #             },
-            #             "slope_down": {
-            #                 "base_height_range": [0.22, 0.22],
-            #             },
-            #             "platform_ridge": {
-            #                 "base_height_range": [0.22, 0.22],
-            #             },
-            #         },
-            #     },
-            # },
+            {
+                "name": "randomized",
+                "start_iteration": 100,
+                "targets": {
+                    "domain_rand": {"strength": 0.4},
+                    "sensor_noise": {"strength": 0.4},
+                    "task_weights": {
+                        "platform_ridge": 1.0,
+                        "stairs_down": 0.5,
+                        "slope_down": 0.5,
+                    },
+                },
+            },
+            {
+                "name": "full",
+                "start_iteration": 1000,
+                "targets": {
+                    "domain_rand": {"strength": 1.0},
+                    "sensor_noise": {"strength": 1.0},
+                    "task_weights": {
+                        "stairs_up": 1.0,
+                    },
+                    "task_command_ranges": {
+                        "stairs_down": {
+                            "base_height_range": [0.22, 0.22],
+                        },
+                        "slope_up": {
+                            "base_height_range": [0.22, 0.22],
+                        },
+                        "slope_down": {
+                            "base_height_range": [0.22, 0.22],
+                        },
+                        "platform_ridge": {
+                            "base_height_range": [0.22, 0.22],
+                        },
+                    },
+                },
+            },
         ],
     }
 
@@ -198,7 +197,7 @@ def get_cfgs():
             backswing_angle_deg=10.0,  # 虚拟腿后摆奖励的目标角度（°）；正值为后摆，达到后进度饱和。
             # 搭接奖励与收腿奖励共用；支撑中断后重新累计稳定时间。
             support_duration_s=0.10,  # 深度、支撑力和速度门限须连续满足的时间（s）。
-            support_force_n=1.0,  # 满足搭接深度的底盘接触点，向上支撑力之和的下限（N）。
+            support_force_n=5.0,  # 满足搭接深度的底盘接触点，向上支撑力之和的下限（N）。
             support_normal_z=0.9,  # 台面接触法向 |nz| 的下限（无量纲），用于排除侧壁接触。
             support_surface_tolerance_m=0.015,  # 底盘或轮子接触点与台面高度的最大偏差（m）。
             support_margin_m=0.1,  # 计入支撑力的底盘接触点须深入台面至少此距离（m）。
@@ -328,7 +327,7 @@ def get_cfgs():
             wheel_action_rate=-0.05,
             leg_action_rate=-0.02,
             leg_symmetry=-5.0,
-            leg_symmetry_bonus=0.2,
+            leg_symmetry_bonus=1.0,
             base_contact=-10.0,
             death=-10.0,
         ),
