@@ -106,6 +106,13 @@ overrides={
 这些行为覆盖项按难度累计继承，支持 `commands`、`rewards`、`termination`、`success`、
 `resampling_time_s`、`tracking_success`、`landing_stability` 和 `ascent`。不允许覆盖几何；几何只在 `terrains` 中维护。
 
+上楼梯各等级的机身目标高度在 `tasks["stairs_up"]["curriculum"]["overrides"]` 的
+`commands.base_height_range` 中分别配置，对应 `terrains/stairs_up.py` 的 `LEVELS` 等级。
+例如 `0: dict(commands=dict(base_height_range=[0.26, 0.26]))` 表示 0 级固定为 0.26 m；
+`[0.24, 0.28]` 表示在该范围内随机采样。当前各级均保留 0.36 m，可按需要分别修改。
+这里的高度是机身原点相对脚下地面的目标高度，不是台阶高度或世界坐标 z。
+若全局阶段的 `task_command_ranges.stairs_up` 也指定了 `base_height_range`，则以全局阶段覆盖为准。
+
 locomotion 固定使用 plane 的 0 级，完整时长回合内的线速度、角速度、高度 RMSE 达标记为成功，
 阈值在 `tracking_success` 中。全局 `curriculum_cfg` 由 `config.py` 的 `_get_curriculum_cfg()` 返回，控制动力学随机化、传感器噪声强度、任务配额和各地形命令范围：
 

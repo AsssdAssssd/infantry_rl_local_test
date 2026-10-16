@@ -4,14 +4,16 @@ import torch
 
 from .stairs import Stairs
 
-
 PRESET = "stairs_up"
 PARAMETER_KEY = "box_stairs_up"
-PARAMETERS = dict(step_depth=2.0, step_height=0.20, num_steps=1, approach_length=1.0, base_thickness=0.10)
+PARAMETERS = dict(step_depth=2.0, step_height=0.20, num_steps=1, approach_length=1.5, base_thickness=0.10)
 LEVELS = {
-    0: {"step_height": 0.15},
-    1: {"step_height": 0.17},
-    2: {"step_height": 0.20},
+    0: {"step_height": 0.10},
+    1: {"step_height": 0.12},
+    2: {"step_height": 0.14},
+    3: {"step_height": 0.16},
+    4: {"step_height": 0.18},
+    5: {"step_height": 0.20},
 }
 
 

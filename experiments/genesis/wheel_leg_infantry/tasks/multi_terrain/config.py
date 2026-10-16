@@ -21,53 +21,48 @@ def _get_curriculum_cfg():
                     "task_weights": {
                         "square_wave": 0.0,
                         "platform_ridge": 0.0,
-                    },
-                    "task_command_ranges": {
-                        # 按任务名配置，仅填写要覆盖的项；未填写项使用任务各难度的 commands。
-                        # "stairs_down": {
-                        #     "lin_vel_range": [1.0, 2.5],
-                        #     "ang_vel_range": [0.0, 0.0],
-                        #     "base_height_range": [0.20, 0.30],
-                        # },
+                        # "stairs_up": 0.0,
                     },
                 },
             },
-            {
-                "name": "randomized",
-                "start_iteration": 200,
-                "targets": {
-                    "domain_rand": {"strength": 0.4},
-                    "sensor_noise": {"strength": 0.4},
-                    "task_weights": {
-                        "platform_ridge": 1.0,
-                        "stairs_down": 0.5,
-                        "slope_down": 0.5,
-                    },
-                    "task_command_ranges": {},  # 仅填写变化项，其余继承前面阶段。
-                },
-            },
-            {
-                "name": "full",
-                "start_iteration": 1200,
-                "targets": {
-                    "domain_rand": {"strength": 1.0},
-                    "sensor_noise": {"strength": 1.0},
-                    "task_command_ranges": {
-                        "stairs_down": {
-                            "base_height_range": [0.22, 0.22],
-                        },
-                        "slope_up": {
-                            "base_height_range": [0.22, 0.22],
-                        },
-                        "slope_down": {
-                            "base_height_range": [0.22, 0.22],
-                        },
-                        "platform_ridge": {
-                            "base_height_range": [0.22, 0.22],
-                        },
-                    },
-                },
-            },
+            # {
+            #     "name": "randomized",
+            #     "start_iteration": 100,
+            #     "targets": {
+            #         "domain_rand": {"strength": 0.4},
+            #         "sensor_noise": {"strength": 0.4},
+            #         "task_weights": {
+            #             "platform_ridge": 1.0,
+            #             "stairs_down": 0.5,
+            #             "slope_down": 0.5,
+            #         },
+            #     },
+            # },
+            # {
+            #     "name": "full",
+            #     "start_iteration": 1000,
+            #     "targets": {
+            #         "domain_rand": {"strength": 1.0},
+            #         "sensor_noise": {"strength": 1.0},
+            #         "task_weights": {
+            #             "stairs_up": 1.0,
+            #         },
+            #         "task_command_ranges": {
+            #             "stairs_down": {
+            #                 "base_height_range": [0.22, 0.22],
+            #             },
+            #             "slope_up": {
+            #                 "base_height_range": [0.22, 0.22],
+            #             },
+            #             "slope_down": {
+            #                 "base_height_range": [0.22, 0.22],
+            #             },
+            #             "platform_ridge": {
+            #                 "base_height_range": [0.22, 0.22],
+            #             },
+            #         },
+            #     },
+            # },
         ],
     }
 
@@ -153,32 +148,29 @@ def get_cfgs():
         weight=1.0,
         commands=dict(
             num_commands=3,
-            lin_vel_range=[0.5, 2.5],
+            lin_vel_range=[0.5, 1.0],
             ang_vel_range=[0.0, 0.0],
             base_height_range=[0.36, 0.36],
             standing_probability=0.0,
         ),
         rewards=dict(
             task_progress=10.0,
-            task_success=20.0,
-            stairs_up_support=10.0,
+            task_success=40.0,
+            stairs_up_support=20.0,
             stairs_up_retract=20.0,
             stairs_up_takeoff=10.0,  # 双轮首次离开台下地面，一回合只奖励一次。
             stairs_up_landing_distance=10.0,  # 首轮触台距离奖励，单位为奖励/m，仅首次触台发放。
             stairs_up_wheel_wall_force=-0.2,  # 轮子撞立面的法向力总和（N），按 dt 积分。
             stairs_up_approach_lift=0.0,
-            stairs_up_backswing=30.0,
-            stairs_up_forward_swing=5.0,  # 轮子抬够后向前摆腿的新增进度，与伸腿同时引导。
-            stairs_up_extend=5.0,  # 轮子位于台面上方时，新增伸腿长度的进度奖励。
+            stairs_up_backswing=50.0,
+            stairs_up_forward_swing=50.0,  # 轮子抬够后向前摆腿的新增进度，与伸腿同时引导。
+            stairs_up_extend=50.0,  # 轮子位于台面上方时，新增伸腿长度的进度奖励。
             stairs_up_wheel_support=10.0,  # 落台阶段双轮首次真实接触上台面支撑，一回合一次。
-            stairs_up_wheel_forward_action=1.0,  # 双轮落台接地后、机身前向速度不超过 command 时奖励正转 action，按 dt 积分。
+            stairs_up_wheel_forward_action=50.0,  # 双轮落台接地后、机身前向速度不超过 command 时奖励正转 action，按 dt 积分。
             task_lateral=-2.0,
             task_heading=-0.5,
             base_balance=-20.0,
-            joint_vel=-0.001,
-            wheel_action_rate=-0.05,
-            leg_action_rate=-0.02,
-            death=-10.0,
+            death=-5.0,
         ),
         resampling_time_s=3.0,
         terrain=dict(preset="stairs_up", tile_size=[16.0, 6.0]),
@@ -206,7 +198,7 @@ def get_cfgs():
             backswing_angle_deg=10.0,  # 虚拟腿后摆奖励的目标角度（°）；正值为后摆，达到后进度饱和。
             # 搭接奖励与收腿奖励共用；支撑中断后重新累计稳定时间。
             support_duration_s=0.10,  # 深度、支撑力和速度门限须连续满足的时间（s）。
-            support_force_n=5.0,  # 满足搭接深度的底盘接触点，向上支撑力之和的下限（N）。
+            support_force_n=1.0,  # 满足搭接深度的底盘接触点，向上支撑力之和的下限（N）。
             support_normal_z=0.9,  # 台面接触法向 |nz| 的下限（无量纲），用于排除侧壁接触。
             support_surface_tolerance_m=0.015,  # 底盘或轮子接触点与台面高度的最大偏差（m）。
             support_margin_m=0.1,  # 计入支撑力的底盘接触点须深入台面至少此距离（m）。
@@ -236,6 +228,15 @@ def get_cfgs():
             window_episodes=100,
             promote_threshold=0.95,
             demote_threshold=0.2,
+            # 对应 stairs_up.LEVELS 的等级；机身目标离地高度（m），两端相同表示固定高度。
+            overrides={
+                0: dict(commands=dict(base_height_range=[0.25, 0.30])),
+                1: dict(commands=dict(base_height_range=[0.25, 0.30])),
+                2: dict(commands=dict(base_height_range=[0.28, 0.32])),
+                3: dict(commands=dict(base_height_range=[0.32, 0.36])),
+                4: dict(commands=dict(base_height_range=[0.34, 0.36])),
+                5: dict(commands=dict(base_height_range=[0.34, 0.36])),
+            },
         ),
     )
 
