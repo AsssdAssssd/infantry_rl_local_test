@@ -52,10 +52,13 @@ class MultiTerrainRewards:
         return self.actions[:, wheel].clamp_min(0).mean(dim=1) * active
 
     def _reward_task_lateral(self):
-        return (self.base_pos[:, 1] - self.terrain_spawn_centers[:, 1]).square()
+        _, lateral = self._task_path_coordinates(self.base_pos[:, :2])
+        return lateral.square()
 
     def _reward_task_heading(self):
-        return 1 - torch.cos(torch.deg2rad(self.base_euler[:, 2])) * self._value("direction")
+        yaw = torch.deg2rad(self.base_euler[:, 2])
+        forward = torch.stack((torch.cos(yaw), torch.sin(yaw)), dim=-1)
+        return 1 - (forward * self.task_forward_xy).sum(dim=-1).clamp(-1, 1)
 
     def _reward_stairs_down_landing_stability(self):
         """下台阶后的振荡代价，配置负权重；不惩罚水平前进或 yaw 转动。"""

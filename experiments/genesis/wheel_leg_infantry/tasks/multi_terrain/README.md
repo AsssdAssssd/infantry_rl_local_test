@@ -1,6 +1,6 @@
 # 任务驱动多地形训练
 
-独立入口 `tasks.multi_terrain`，一套策略同时训练六种通关任务和保留用的 locomotion。
+独立入口 `tasks.multi_terrain`，一套策略同时训练七种通关任务和保留用的 locomotion。
 机器人、控制器、IMU/ToF 观测及三维命令接口复用 locomotion；不额外向 actor 输入任务 ID 或终点真值。
 相同观测配置的 locomotion 权重可通过 `--load-weights` 迁移。
 
@@ -41,7 +41,8 @@
 | `slope_up` | 上一个独立坡面 | 坡角等级：5 → 10 → 15 → 20 → 23 → 25°，高差 25 cm | 1 |
 | `slope_down` | 下一个独立坡面 | 与上坡相同，但独立统计成功率 | 1 |
 | `square_wave` | 登上一级小高度台阶 | `square_wave` 高度 2 → 2.5 → 3 → 3.5 → 4 → 4.5 → 5 cm | 1 |
-| `platform_ridge` | 朝 −x 越过凸台，经第一平台下到地面 | 第二平台与凸台高差 1 → 2 → 3 → 4 → 5 cm | 15000 轮前为 0，之后为 1 |
+| `platform_ridge_down` | 沿 +x 越过凸台，经第一平台下到地面 | 第二平台与凸台高差 1 → 2 → 3 → 4 → 5 cm | 100 轮前为 0，之后为 1 |
+| `platform_ridge_up` | 沿 +x 从地面登上第一平台、越过凸台，落到第二平台 | 凸台高度 15 → 20 → 25 → 30 → 35 cm，平台高度同步增加 | 100 轮前为 0，之后为 1 |
 
 几何和难度唯一来源是 `terrains` 注册模块的 `PARAMETERS` 与 `LEVELS`。
 上述表格描述当前默认值；修改模块难度表会作用于新训练，已有训练使用保存的 `level_catalog` 快照。
@@ -114,7 +115,8 @@ overrides={
 若全局阶段的 `task_command_ranges.stairs_up` 也指定了 `base_height_range`，则以全局阶段覆盖为准。
 
 locomotion 固定使用 plane 的 0 级，完整时长回合内的线速度、角速度、高度 RMSE 达标记为成功，
-阈值在 `tracking_success` 中。全局 `curriculum_cfg` 由 `config.py` 的 `_get_curriculum_cfg()` 返回，控制动力学随机化、传感器噪声强度、任务配额和各地形命令范围：
+阈值在 `tracking_success` 中。全局 `curriculum_cfg` 由 `config.py` 的 `_get_curriculum_cfg()` 返回，控制动力学随机化、传感器噪声强度、任务配额和各地形命令范围。
+以下示例将两种凸台延后到 15000 轮启用；当前默认配置在 100 轮启用两种凸台，具体以 `config.py` 为准：
 
 ```python
 def _get_curriculum_cfg():
@@ -129,7 +131,8 @@ def _get_curriculum_cfg():
                     "domain_rand": {"strength": 0.0},
                     "sensor_noise": {"strength": 0.0},
                     "task_weights": {
-                        "platform_ridge": 0.0,
+                        "platform_ridge_down": 0.0,
+                        "platform_ridge_up": 0.0,
                     },
                 },
             },
@@ -150,12 +153,13 @@ def _get_curriculum_cfg():
                 },
             },
             {
-                "name": "platform_ridge",
+                "name": "platform_ridge_down",
                 "start_iteration": 15000,
                 "targets": {
                     # 保留已有任务及其权重，新增凸台任务；随机化和噪声继承 full 阶段。
                     "task_weights": {
-                        "platform_ridge": 1.0,
+                        "platform_ridge_down": 1.0,
+                        "platform_ridge_up": 1.0,
                     },
                 },
             },
@@ -174,12 +178,12 @@ def _get_curriculum_cfg():
         "standing_probability": 0.3,
     },
     "stairs_down": {"lin_vel_range": [0.5, 1.0]},
-    "platform_ridge": {"lin_vel_range": [0.8, 1.5]},
+    "platform_ridge_down": {"lin_vel_range": [0.8, 1.5]},
 },
 ```
 
 任务名为 `locomotion`、`stairs_down`、`stairs_up`、`slope_up`、`slope_down`、
-`square_wave`、`platform_ridge`，与 `tasks` 中的名称一致。支持上例中的四个字段。
+`square_wave`、`platform_ridge_down`、`platform_ridge_up`，与 `tasks` 中的名称一致。支持上例中的四个字段。
 全局阶段覆盖优先于该任务各难度的 `curriculum.overrides.commands`，对该任务所有难度生效；
 未覆盖字段继续使用各难度配置。后续阶段只填写要改变的任务/字段，其他项累计继承，
 空字典表示没有新变化。范围必须有限且下限不大于上限，机身高度为正，通关任务线速度下限为正。
@@ -190,20 +194,38 @@ def _get_curriculum_cfg():
 运行时覆盖不修改原始任务和难度快照。关闭全局课程则使用任务各难度原始 commands。
 
 后续阶段继承此前的目标值；凸台阶段保持随机化和噪声强度 1.0，其他任务保留各自权重。
-凸台几何及 5 个难度在初始化时预建，前期不分配环境；启用后从 0 级开始独立统计成功率并升降级。
+两种凸台各自的几何及 5 个难度在初始化时预建，前期不分配环境；启用后各自从 0 级开始独立统计成功率并升降级。
 `enabled=False` 或任务初始 `weight=0` 会禁用该任务，全局 `task_weights` 不会重新启用未构建的任务。
 关闭全局课程时使用任务原始权重（凸台为 1），因此会从训练开始就分配凸台环境。
 训练入口默认上限为 25001 轮，给 15000 轮后新增的任务留出训练时间。
 
-`platform_ridge` 从第二平台中央朝 −x 出发；越过 35 cm 凸台、20 cm 第一平台后下到地面，
-继续前进 0.8 m 到终点。进度、双轮越沿和航向奖励按 −x 方向计算；其他通关任务仍沿 +x。
+`platform_ridge_down` 从 x=0 的第二平台沿 +x 出发；越过 35 cm 凸台、20 cm 第一平台后下到地面，
+继续前进 0.8 m 到终点。`platform_ridge_up` 从 x=0 的地面沿 +x 登上第一平台、越过凸台，
+在第二平台上继续前进 0.8 m 到终点。两者独立配置奖励、命令和成功率课程。
+地形几何仍沿 +x 构建；斜向训练时，小车沿每次出生 yaw 跨越固定朝向的障碍。
+
+reset 的位置和姿态范围仍由 `config.py` 末尾的 `env.update(...)` 统一配置：
+`base_init_pos_range` 依次为 x/y/z 的米制范围（z 相对当地地面），
+`base_init_rpy_offset_range_deg` 依次为 roll/pitch/yaw 的角度范围。
+两种凸台均保留这些随机量，不再强制平移或旋转小车。
+默认 yaw 为 `[-30, 30]` 度，兼顾正向和左右斜向跨越；roll/pitch 保持为 0。
+
+所有通关任务在 reset 时保存本回合的实际出生位置与 yaw，直到该环境再次 reset 才更新：
+
+- 航向奖励相对出生 yaw 计算；横向奖励和走廊限制相对出生点沿该 yaw 的直线计算。
+- 进度投影到出生航向，沿该方向到达障碍末沿后再前进 `landing_length` 到终点。
+- 双轮越沿仍按真实地形的 x 边缘判断，并检查接地和姿态，不能靠横移或从侧面绕行通关。
+- 台阶专用的接触、支撑、伸腿和后摆奖励也使用同一条斜向走廊。
+- 地块实际安全边界仍有效。增大 yaw 时若斜线路径超出地块，应扩大 `terrain.tile_size` 的 y 尺寸。
+
+通关任务出生 yaw 必须朝向障碍，与地形通行方向的夹角小于 90 度；平地任务不受此限制。
 
 `--resume` 默认读保存配置及难度表快照；变更任务集合、难度表或权重应新建训练并 `--load-weights`。
 旧的 `geometry` / `curriculum.stages` 格式及其课程状态不再兼容，旧策略可以通过 `--load-weights` 迁移。
 
 ## 通关奖励与结束条件
 
-六种通关任务禁止非零 `alive` 奖励；locomotion 保留经典奖励。
+七种通关任务禁止非零 `alive` 奖励；locomotion 保留经典奖励。
 通关任务默认使用：
 
 - `task_progress=5`：每前进到本回合新的最远位置奖励 5 × 新增米数，最多计算到终点。
@@ -399,7 +421,7 @@ TensorBoard 的 `task/<name>/...` 分别记录环境占比、当前难度（`dif
   -e multi_terrain_v1 --task square_wave
 
 .venv/bin/python -m experiments.genesis.wheel_leg_infantry.tasks.multi_terrain.eval \
-  -e multi_terrain_v1 --task platform_ridge --difficulty 0
+  -e multi_terrain_v1 --task platform_ridge_down --difficulty 0
 
 # 自动命令、自动终点 reset，打印成功数；无需 GUI。
 .venv/bin/python -m experiments.genesis.wheel_leg_infantry.tasks.multi_terrain.eval \
