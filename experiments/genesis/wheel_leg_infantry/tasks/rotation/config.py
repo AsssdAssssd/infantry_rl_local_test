@@ -53,7 +53,7 @@ def get_cfgs(locomotion_cfgs=None):
     # ---------- 命令：追加云台速率 ----------
     command_cfg["num_commands"] = 5
     command_cfg["translation_direction_range"] = [-math.pi, math.pi]
-    env_cfg["translation_window_s"] = 0.5
+    env_cfg["translation_window_s"] = 1.0
     command_cfg["gimbal_yaw_vel_range"] = [0.0, 0.0] #TODO 这里其他的参数还是原来的，但小陀螺差异比较大，后面记得显示更改
 
     # ---------- 消融开关：ROTATE_ABLATION=1 时，只换机器人，奖励/课程全用 main 的 ----------
@@ -71,10 +71,11 @@ def get_cfgs(locomotion_cfgs=None):
     reward_cfg["reward_scales"]["gimbal_spin_track_lin_vel_yaw_lower"] = -5.0
     reward_cfg["reward_scales"]["gimbal_spin_cross_track"] = -10.0
     reward_cfg["translation_path_deadband_m"] = 0.3
+    reward_cfg["translation_path_limit_m"] = 1.0
     reward_cfg["translation_path_huber_delta_m"] = 0.9
     obs_cfg["obs_scales"]["translation_distance"] = 1.0
     # 高度误差已改为 L1（见 rewards.py），这里把权重也加大，逼它先站起来
-    reward_cfg["reward_scales"]["base_height"] = -40.0
+    reward_cfg["reward_scales"]["base_height"] = -100.0
     # 倾斜惩罚改线性（见 rewards.py），压住"歪着站/蹬一条腿"
     reward_cfg["reward_scales"]["base_balance"] = -20.0
     # 腿长不对称：允许死区内自由（高速自旋+平移需要），超过 deadband 才线性惩罚，防止"伸一条腿"太离谱
@@ -97,6 +98,7 @@ def get_cfgs(locomotion_cfgs=None):
 
 def _curriculum_cfg() -> dict:
     # 阶段采用累计覆盖：这里只写相对上一阶段发生变化的字段。
+    # 学习顺序：先站稳 -> 只学自旋（lin_vel=0，转速逐步升到 ±10）-> 再叠加平移 -> 最后域随机+全方向。
     return {
         "enabled": True,
         "stages": [
@@ -127,70 +129,9 @@ def _curriculum_cfg() -> dict:
                     },
                 },
             },
+            # ---------- 第一阶段：只学自旋，lin_vel 锁 0，转速从 ±3 逐步升到 ±10 ----------
             {
-                "name": "locomotion_befor",
-                "start_iteration": 500,
-                "targets": {
-                    "standing_reward": {"tracking_sigma": 0.10},
-                    "domain_rand": {"strength": 0.0},
-                    "sensor_noise": {"strength": 0.0},
-                    "reset_ranges": {
-                        "base_init_pos_range": [[0.0, 0.0], [0.0, 0.0], [0.22, 0.22]],
-                        "base_init_rpy_offset_range_deg": [[0.0, 0.0], [0.0, 0.0], [0.0, 0.0]],
-                        "base_init_lin_vel_range": [[0.0, 0.0], [0.0, 0.0], [0.0, 0.0]],
-                        "base_init_ang_vel_range": [[0.0, 0.0], [0.0, 0.0], [0.0, 0.0]],
-                    },
-                    "command_ranges": {
-                        "standing_probability": 0.1,
-                        "lin_vel_range": [-0.0, 1.0],
-                        "ang_vel_range": [-0.0, 0.0],
-                        "base_height_range": [0.20, 0.24],
-                        "gimbal_yaw_vel_range": [-0.0, 0.0],
-                        "translation_direction_range": [0,0],
-                    },
-                },
-            },
-            # {
-            #     "name": "locomotion_tmp",
-            #     "start_iteration": 1500,
-            #     "targets": {
-            #         "standing_reward": {"tracking_sigma": 0.10},
-            #         "domain_rand": {"strength": 0.0},
-            #         "sensor_noise": {"strength": 0.0},
-            #         "reset_ranges": {
-            #             "base_init_pos_range": [[0.0, 0.0], [0.0, 0.0], [0.22, 0.22]],
-            #             "base_init_rpy_offset_range_deg": [[0.0, 0.0], [0.0, 0.0], [0.0, 0.0]],
-            #             "base_init_lin_vel_range": [[0.0, 0.0], [0.0, 0.0], [0.0, 0.0]],
-            #             "base_init_ang_vel_range": [[0.0, 0.0], [0.0, 0.0], [0.0, 0.0]],
-            #         },
-            #         "command_ranges": {
-            #             "standing_probability": 0.1,
-            #             "lin_vel_range": [0.0, 1.0],
-            #             "ang_vel_range": [-0.0, 0.0],
-            #             "base_height_range": [0.20, 0.30],
-            #             "gimbal_yaw_vel_range": [-0.0, 0.0],
-
-            #         },
-            #         "tracking_gate": {
-            #             "height_full_error": 0.03,
-            #             "height_zero_error": 0.09,
-            #             "attitude_full_angle_deg": 2.0,
-            #             "attitude_zero_angle_deg": 10.0,
-            #             "floor": 0.30,
-            #         },
-            #         "reward_scales": {
-            #             "standing_drift": -1.0,
-            #             # "tracking_lin_vel": -2.0,
-            #             "tracking_ang_vel": -2.0,
-            #                 "gimbal_spin_track_lin_vel_yaw_frame": 5.0,
-            #             "leg_symmetry": -10.0,
-            #             "base_balance": -20.0,
-            #             # "gimbal_yaw_ang": -10.0,
-            #         },
-            #     },
-            # },
-            {
-                "name": "locomotion",
+                "name": "rotation_slow",
                 "start_iteration": 1500,
                 "targets": {
                     "standing_reward": {"tracking_sigma": 0.10},
@@ -204,12 +145,11 @@ def _curriculum_cfg() -> dict:
                     },
                     "command_ranges": {
                         "standing_probability": 0.1,
-                        "lin_vel_range": [0.0, 1.5],
+                        "lin_vel_range": [0.0, 0.0],
                         "ang_vel_range": [-3.0, 3.0],
-                        "base_height_range": [0.20, 0.30],
+                        "base_height_range": [0.20, 0.25],
                         "gimbal_yaw_vel_range": [-0.0, 0.0],
-                        "translation_direction_range": [-math.pi/4,math.pi/4],
-
+                        "translation_direction_range": [0.0, 0.0],
                     },
                     "tracking_gate": {
                         "height_full_error": 0.03,
@@ -222,7 +162,7 @@ def _curriculum_cfg() -> dict:
                         "standing_drift": -1.0,
                         # "tracking_lin_vel": -2.0,
                         "tracking_ang_vel": -2.0,
-                         "gimbal_spin_track_lin_vel_yaw_frame": 6.0,
+                        "gimbal_spin_track_lin_vel_yaw_frame": 6.0,
                         "leg_symmetry": -10.0,
                         "base_balance": -20.0,
                         # "gimbal_yaw_ang": -10.0,
@@ -230,8 +170,8 @@ def _curriculum_cfg() -> dict:
                 },
             },
             {
-                "name": "locomotion2",
-                "start_iteration": 3500,
+                "name": "rotation_mid",
+                "start_iteration": 4000,
                 "targets": {
                     "standing_reward": {"tracking_sigma": 0.05},
                     "domain_rand": {"strength": 0.0},
@@ -244,12 +184,11 @@ def _curriculum_cfg() -> dict:
                     },
                     "command_ranges": {
                         "standing_probability": 0.1,
-                        "lin_vel_range": [0.0, 1.0],
+                        "lin_vel_range": [0.0, 0.0],
                         "ang_vel_range": [-6.0, 6.0],
-                        "base_height_range": [0.20, 0.34],
+                        "base_height_range": [0.20, 0.30],
                         "gimbal_yaw_vel_range": [0.0, 0.0],
-                        "translation_direction_range": [-math.pi/2,math.pi/2],
-
+                        "translation_direction_range": [0.0, 0.0],
                     },
                     "tracking_gate": {
                         "height_full_error": 0.02,
@@ -267,7 +206,7 @@ def _curriculum_cfg() -> dict:
                         "base_contact": -15.0,
                         "landing_base_oscillation": -0.3,
                         "landing_joint_vel": -0.01,
-                         "gimbal_spin_track_lin_vel_yaw_frame": 8.0,
+                        "gimbal_spin_track_lin_vel_yaw_frame": 8.0,
                         # "gimbal_yaw_ang": -10.0,
                         "height_gate": 3.0,
 
@@ -275,26 +214,25 @@ def _curriculum_cfg() -> dict:
                 },
             },
             {
-                "name": "locomotion_rand",
-                "start_iteration": 5000,
+                "name": "rotation_fast",
+                "start_iteration": 7000,
                 "targets": {
                     "standing_reward": {"tracking_sigma": 0.02},
-                    "domain_rand": {"strength": 0.1},
-                    "sensor_noise": {"strength": 0.1},
+                    "domain_rand": {"strength": 0.0},
+                    "sensor_noise": {"strength": 0.0},
                     "reset_ranges": {
-                        "base_init_pos_range": [[0.0, 0.0], [0.0, 0.0], [0.22, 0.24]],
+                        "base_init_pos_range": [[0.0, 0.0], [0.0, 0.0], [0.22, 0.22]],
                         "base_init_rpy_offset_range_deg": [[0.0, 0.0], [0.0, 0.0], [0.0, 0.0]],
-                        "base_init_lin_vel_range": [[-0.5, 0.5], [0.0, 0.0], [0.0, 0.0]],
-                        "base_init_ang_vel_range": [[0.0, 0.0], [0.0, 0.0], [-1.0, 1.0]],
+                        "base_init_lin_vel_range": [[0.0, 0.0], [0.0, 0.0], [0.0, 0.0]],
+                        "base_init_ang_vel_range": [[0.0, 0.0], [0.0, 0.0], [0.0, 0.0]],
                     },
                     "command_ranges": {
                         "standing_probability": 0.25,
-                        "lin_vel_range": [0.0, 0.75],
+                        "lin_vel_range": [0.0, 0.0],
                         "ang_vel_range": [-10.0, 10.0],
-                        "base_height_range": [0.20, 0.36],
+                        "base_height_range": [0.20, 0.34],
                         "gimbal_yaw_vel_range": [0.0, 0.0],
-                        "translation_direction_range": [-math.pi/2,math.pi/2],
-
+                        "translation_direction_range": [0.0, 0.0],
                     },
                     "tracking_gate": {
                         "height_full_error": 0.02,
@@ -318,9 +256,32 @@ def _curriculum_cfg() -> dict:
                     },
                 },
             },
+            # ---------- 第二阶段：高速自旋稳定后，再叠加平移（先小方向范围，逐步放开） ----------
+            {
+                "name": "locomotion",
+                "start_iteration": 10000,
+                "targets": {
+                    "domain_rand": {"strength": 0.1},
+                    "sensor_noise": {"strength": 0.1},
+                    "reset_ranges": {
+                        "base_init_pos_range": [[0.0, 0.0], [0.0, 0.0], [0.22, 0.24]],
+                        "base_init_rpy_offset_range_deg": [[0.0, 0.0], [0.0, 0.0], [0.0, 0.0]],
+                        "base_init_lin_vel_range": [[-0.5, 0.5], [0.0, 0.0], [0.0, 0.0]],
+                        "base_init_ang_vel_range": [[0.0, 0.0], [0.0, 0.0], [-1.0, 1.0]],
+                    },
+                    "command_ranges": {
+                        "standing_probability": 0.25,
+                        "lin_vel_range": [0.0, 0.75],
+                        "ang_vel_range": [-10.0, 10.0],
+                        "base_height_range": [0.20, 0.36],
+                        "gimbal_yaw_vel_range": [0.0, 0.0],
+                        "translation_direction_range": [-math.pi/2, math.pi/2],
+                    },
+                },
+            },
             {
                 "name": "full_range",
-                "start_iteration": 8000,
+                "start_iteration": 13000,
                 "targets": {
                     "domain_rand": {"strength": 0.3},
                     "sensor_noise": {"strength": 0.3},
@@ -334,10 +295,10 @@ def _curriculum_cfg() -> dict:
                     "command_ranges": {
                         "standing_probability": 0.25,
                         "lin_vel_range": [0.0, 0.75],
-                        "ang_vel_range": [-13.0, 13.0],
+                        "ang_vel_range": [-10.0, 10.0],
                         "base_height_range": [0.20, 0.36],
                         "gimbal_yaw_vel_range": [0.0, 0.0],
-                        "translation_direction_range": [-math.pi,math.pi],
+                        "translation_direction_range": [-math.pi, math.pi],
                     },
                     "reward_scales": {},
                 },

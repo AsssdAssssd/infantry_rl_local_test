@@ -37,3 +37,6 @@ actor 保留原四维 commands 观测，另加 `translation_direction=[sin(theta
 
 初始化输出等价只针对同一组公共输入。locomotion 的机身系速度命令与 rotate 的
 云台系速度命令语义不同，参考系变换需要后续 PPO 学习，不能保证初始二维跟踪能力。
+
+# tensorboard的
+.venv/bin/tensorboard --logdir logs --host 0.0.0.0 --port 8080
