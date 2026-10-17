@@ -53,6 +53,7 @@ def get_cfgs(locomotion_cfgs=None):
     # ---------- 命令：追加云台速率 ----------
     command_cfg["num_commands"] = 5
     command_cfg["translation_direction_range"] = [-math.pi, math.pi]
+    env_cfg["translation_window_s"] = 0.5
     command_cfg["gimbal_yaw_vel_range"] = [0.0, 0.0] #TODO 这里其他的参数还是原来的，但小陀螺差异比较大，后面记得显示更改
 
     # ---------- 消融开关：ROTATE_ABLATION=1 时，只换机器人，奖励/课程全用 main 的 ----------
@@ -66,8 +67,12 @@ def get_cfgs(locomotion_cfgs=None):
     reward_cfg["reward_scales"]["tracking_lin_vel"] = -2.0
     reward_cfg["reward_scales"]["gated_tracking_lin_vel"] = -0.0
     reward_cfg["reward_scales"]["gimbal_spin_track_lin_vel_yaw_frame"] =3.0
-    reward_cfg["reward_scales"]["gimbal_spin_heading_error"] = -5.0
-    reward_cfg["reward_scales"]["gimbal_spin_track_lin_vel_yaw_lower"] = -10.0
+    reward_cfg["reward_scales"]["gimbal_spin_heading_error"] = -3.0
+    reward_cfg["reward_scales"]["gimbal_spin_track_lin_vel_yaw_lower"] = -5.0
+    reward_cfg["reward_scales"]["gimbal_spin_cross_track"] = -10.0
+    reward_cfg["translation_path_deadband_m"] = 0.3
+    reward_cfg["translation_path_huber_delta_m"] = 0.9
+    obs_cfg["obs_scales"]["translation_distance"] = 1.0
     # 高度误差已改为 L1（见 rewards.py），这里把权重也加大，逼它先站起来
     reward_cfg["reward_scales"]["base_height"] = -40.0
     # 倾斜惩罚改线性（见 rewards.py），压住"歪着站/蹬一条腿"
@@ -226,7 +231,7 @@ def _curriculum_cfg() -> dict:
             },
             {
                 "name": "locomotion2",
-                "start_iteration": 2500,
+                "start_iteration": 3500,
                 "targets": {
                     "standing_reward": {"tracking_sigma": 0.05},
                     "domain_rand": {"strength": 0.0},
@@ -271,7 +276,7 @@ def _curriculum_cfg() -> dict:
             },
             {
                 "name": "locomotion_rand",
-                "start_iteration": 3000,
+                "start_iteration": 5000,
                 "targets": {
                     "standing_reward": {"tracking_sigma": 0.02},
                     "domain_rand": {"strength": 0.1},
@@ -315,7 +320,7 @@ def _curriculum_cfg() -> dict:
             },
             {
                 "name": "full_range",
-                "start_iteration": 5000,
+                "start_iteration": 8000,
                 "targets": {
                     "domain_rand": {"strength": 0.3},
                     "sensor_noise": {"strength": 0.3},

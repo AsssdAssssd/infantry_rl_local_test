@@ -17,14 +17,11 @@ _ABLATION = os.environ.get("ROTATE_ABLATION")
 class RotateRewards:
     # ---------- 覆盖：在“云台系”里跟踪整个水平速度向量（大小 + 方向） ----------
     def _base2gimbal_lin_vel(self) -> torch.Tensor:
-        world_vel_xy = torch.clamp(self.robot.get_vel()[:, :2], -5.0, 5.0)  # (N,2) 世界系水平速度，限幅防数值爆炸
-        # 将测量速度投到目标平移方向及其左侧法向，所有跟踪项共享方向语义。
-        psi = self.gimbal_yaw_ref + self.get_translation_direction()
-        v_forward=torch.cos(psi)*world_vel_xy[:,0]+torch.sin(psi)*world_vel_xy[:,1]
-        v_vertical=torch.cos(psi)*world_vel_xy[:,1]-torch.sin(psi)*world_vel_xy[:,0]
-
-        #CRITICALYAW LINK VEL A
-        return v_forward ,v_vertical
+        """Recent world displacement velocity projected into the sampled command frame."""
+        return (
+            torch.clamp(self.translation_window_forward_speed, -5.0, 5.0),
+            torch.clamp(self.translation_window_lateral_speed, -5.0, 5.0),
+        )
 
     def _rotate_lin_vel_error(self) -> torch.Tensor:
         v_forward ,v_vertical=self._base2gimbal_lin_vel()
@@ -93,6 +90,17 @@ class RotateRewards:
         real_forward_speed,_=self._base2gimbal_lin_vel()
         target_speed=self.commands[:,0]
         return torch.clamp(real_forward_speed-target_speed,min=0.0)
+
+    def _reward_gimbal_spin_cross_track(self):
+        excess = torch.clamp(
+            torch.abs(self.translation_path_cross_track) - self.translation_path_deadband_m,
+            min=0.0, max=self.translation_path_limit_m - self.translation_path_deadband_m,
+        )
+        delta = self.translation_path_huber_delta_m
+        quadratic = 0.5 * excess.square()
+        linear = delta * (excess - 0.5 * delta)
+        moving = (self.commands[:, 0].abs() > self.reward_cfg.get("standing_lin_vel_threshold", 0.02)).to(excess.dtype)
+        return torch.where(excess <= delta, quadratic, linear) * moving
 
     # ---------- 覆盖：给角速度误差限幅，防数值爆炸把奖励放大到百万级 ----------
     def _reward_tracking_ang_vel(self):

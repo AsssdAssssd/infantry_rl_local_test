@@ -62,7 +62,7 @@ class RotateEnv(RotateRewards, LocomotionEnv):
 
         # 机器人已建好，拿云台 DOF 索引。
         self.gimbal_dof_idx = self._joint_dof_indices(self.gimbal_joint_names) #2
-        kp = torch.full((2,), 20.0, dtype=gs.tc_float, device=self.device)  #同其余joint，后写到config里面 TODO
+        kp = torch.full((2,), 15.0, dtype=gs.tc_float, device=self.device)  #同其余joint，后写到config里面 TODO
         kd = torch.full((2,), 0.6, dtype=gs.tc_float, device=self.device)
         self.robot.set_dofs_kp(kp.tolist(), self.gimbal_dof_idx)
         self.robot.set_dofs_kv(kd.tolist(), self.gimbal_dof_idx)
@@ -124,6 +124,77 @@ class RotateEnv(RotateRewards, LocomotionEnv):
             return self.commands[:, 4]
         return torch.zeros_like(self.commands[:, 0])
 
+    def _initialize_task_buffers(self):
+        self.translation_window_s = float(self.env_cfg.get("translation_window_s", 0.5))
+        if not math.isfinite(self.translation_window_s) or self.translation_window_s <= 0.0:
+            raise ValueError("translation_window_s must be positive and finite")
+        self.translation_window_steps = max(1, round(self.translation_window_s / self.dt))
+        self.translation_history_length = self.translation_window_steps + 1
+        self.translation_resample_steps = max(1, round(self.resample_step))
+        self.translation_position_history = torch.zeros(
+            (self.num_envs, self.translation_history_length, 2), dtype=gs.tc_float, device=self.device
+        )
+        self.translation_window_age = torch.zeros((self.num_envs,), dtype=torch.long, device=self.device)
+        self.translation_path_origin = torch.zeros((self.num_envs, 2), dtype=gs.tc_float, device=self.device)
+        self.translation_path_yaw = torch.zeros((self.num_envs,), dtype=gs.tc_float, device=self.device)
+        self.translation_path_progress = torch.zeros((self.num_envs,), dtype=gs.tc_float, device=self.device)
+        self.translation_path_cross_track = torch.zeros_like(self.translation_path_progress)
+        self.translation_window_forward_speed = torch.zeros_like(self.translation_path_progress)
+        self.translation_window_lateral_speed = torch.zeros_like(self.translation_path_progress)
+        self.translation_distance_scale = float(self.obs_scales.get("translation_distance", 1.0))
+        self.translation_path_deadband_m = float(self.reward_cfg.get("translation_path_deadband_m", 0.3))
+        self.translation_path_limit_m = float(self.reward_cfg.get("translation_path_limit_m", 1.0))
+        self.translation_path_huber_delta_m = float(self.reward_cfg.get("translation_path_huber_delta_m", 0.7))
+        if self.translation_distance_scale <= 0.0:
+            raise ValueError("translation_distance observation scale must be positive")
+        if self.translation_path_deadband_m < 0.0 or self.translation_path_huber_delta_m <= 0.0:
+            raise ValueError("translation path deadband must be nonnegative and Huber delta positive")
+        if self.translation_path_limit_m <= self.translation_path_deadband_m:
+            raise ValueError("translation path limit must exceed the deadband")
+
+    def _resample_commands(self, envs_idx):
+        super()._resample_commands(envs_idx)
+        if envs_idx is not None and not torch.any(envs_idx):
+            return
+        selected = slice(None) if envs_idx is None else envs_idx
+        position = self.base_pos[selected, :2]
+        self.translation_path_origin[selected] = position
+        self.translation_path_yaw[selected] = self.gimbal_world_yaw[selected] + self.get_translation_direction()[selected]
+        self.translation_window_age[selected] = 0
+        self.translation_position_history[selected] = position[:, None, :].expand(
+            -1, self.translation_history_length, -1
+        )
+        self.translation_path_progress[selected] = 0.0
+        self.translation_path_cross_track[selected] = 0.0
+        self.translation_window_forward_speed[selected] = 0.0
+        self.translation_window_lateral_speed[selected] = 0.0
+
+    def _update_translation_metrics(self):
+        """Update rolling displacement velocity and command-segment path error."""
+        age = self.translation_window_age + 1
+        self.translation_window_age.copy_(age)
+        env_ids = torch.arange(self.num_envs, device=self.device)
+        current_index = age.remainder(self.translation_history_length)
+        position = self.base_pos[:, :2]
+        self.translation_position_history[env_ids, current_index] = position
+
+        window_steps = age.clamp(max=self.translation_window_steps)
+        old_index = (age - window_steps).remainder(self.translation_history_length)
+        old_position = self.translation_position_history[env_ids, old_index]
+        elapsed = window_steps.to(gs.tc_float) * self.dt
+        average_velocity = (position - old_position) / elapsed.unsqueeze(-1)
+
+        forward = torch.stack(
+            [torch.cos(self.translation_path_yaw), torch.sin(self.translation_path_yaw)], dim=-1
+        )
+        lateral = torch.stack([-forward[:, 1], forward[:, 0]], dim=-1)
+        self.translation_window_forward_speed.copy_(torch.sum(average_velocity * forward, dim=-1))
+        self.translation_window_lateral_speed.copy_(torch.sum(average_velocity * lateral, dim=-1))
+
+        displacement = position - self.translation_path_origin
+        self.translation_path_progress.copy_(torch.sum(displacement * forward, dim=-1))
+        self.translation_path_cross_track.copy_(torch.sum(displacement * lateral, dim=-1))
+
     # ============ 云台控制与状态（父类任务扩展点） ============
 
     def _apply_task_control(self):
@@ -151,6 +222,7 @@ class RotateEnv(RotateRewards, LocomotionEnv):
         # 参考角按“云台世界 yaw 速率”命令积分；command=0 时保持不变。
         self.gimbal_yaw_ref.copy_(_wrap(self.gimbal_yaw_ref + self.commands[:, 3] * self.dt))
         self.gimbal_yaw_abs_vel.copy_(self.robot.get_ang()[:, 2] + gimbal_vel[:, 0])
+        self._update_translation_metrics()
 
     def _reset_task_buffers(self, env_idx):
         selected = slice(None) if env_idx is None else env_idx
@@ -159,6 +231,13 @@ class RotateEnv(RotateRewards, LocomotionEnv):
         self.gimbal_world_yaw[selected] = 0.0
         self.gimbal_yaw_ref[selected] = 0.0
         self.gimbal_yaw_abs_vel[selected] = 0.0
+        self.translation_window_age[selected] = 0
+        self.translation_path_origin[selected] = self.base_pos[selected, :2]
+        self.translation_path_yaw[selected] = self.gimbal_world_yaw[selected] + self.get_translation_direction()[selected]
+        self.translation_position_history[selected] = self.base_pos[selected, None, :2].expand(
+            -1, self.translation_history_length, -1
+        )
+        self.translation_path_progress[selected] = self.translation_path_cross_track[selected] = 0.0
         
 
     # ============ 观测（父类任务扩展点） ============
@@ -186,9 +265,35 @@ class RotateEnv(RotateRewards, LocomotionEnv):
 
     def _get_task_privileged_observation_components(self):
         return {
-            "privileged_gimbal_world_yaw": self.gimbal_world_yaw.unsqueeze(-1),
-            "privileged_gimbal_yaw_ref": self.gimbal_yaw_ref.unsqueeze(-1),
-            "privileged_base_height": (self.base_height * self.obs_scales["base_height"]).unsqueeze(-1),
+            "privileged_gimbal_world_yaw": torch.stack(
+                [torch.sin(self.gimbal_world_yaw), torch.cos(self.gimbal_world_yaw)], dim=-1
+            ),
+            # "privileged_gimbal_yaw_ref": self.gimbal_yaw_ref.unsqueeze(-1),#有必要给吗，这之前是为了给云台闭环的。现在都是开换了，，其实执行成什么样子和现在是什么样子总是有个差距的，，其实更严的应该说是pd控制器就是有个稳态误差的,,,算了我觉得这种没必要
+            "privileged_base_height": (self.base_height * self.obs_scales["base_height"]).unsqueeze(-1), #确实还是给，我看基础的里面好像只有分别的两条腿的长度
+            "privileged_translation_path_progress": (
+                self.translation_path_progress * self.translation_distance_scale
+            ).unsqueeze(-1),
+            "privileged_translation_path_cross_track": (
+                self.translation_path_cross_track * self.translation_distance_scale
+            ).unsqueeze(-1),
+            "privileged_translation_segment_fraction": (
+                self.translation_window_age.to(gs.tc_float) / self.translation_resample_steps
+            ).clamp(0.0, 1.0).unsqueeze(-1),
+
+            #我们来思考一下需要哪些
+            #1.多个action ：1.速度吗，还是位移呢，，，保险起见（如果重心不在中心的话）我觉得先不给2.相对于出生位置的平移世界系 3.command指令（有了） 4.云台方向（需要吗，，同1）
+            #2.云台绝对世界方向+command：世界位移下的平移方向？是要分别给还是处理好给呢，其实command已经给了，考虑实车的话
+            #3.base 的速度（说真的给速度吗，reward给位移算是板上钉钉但是这里给reward吗），但反正这个给的就是last_n_action里面需要包括的
+
+            #我觉得就给“出生坐标系”下我在哪里就可以了，因为不同于eval可能会有连续方向的变化，目前是训练环境里面只有一个采样，，后面或许会试一试多采样模拟连续速度方向命令吧
+            #方向是不可能一直对的，但是critical本质不也是按照reward行事吗，我觉得给给也没事，但是这版本是保险的，先不给
+            #给一个相对于世界坐标位移，是否要给个近期时间段的，，，还有就是世界位移关键
+
+            #那我现在 觉得可以给1.给gimbal_abs_yaw+command
+            #2.base_Height
+            #3. 相对于初始时刻云台系方向base原点的base位移（给大小还是给方向）（这个目前是比较模糊的，因为如果给世界位移就不能不给时间，但是如果是规定了某种“时间段/方向段”的位移，其实就可以不给，具体看reward如何实现）
+            #4. last_5_action（主要包含3的位移/command+云台abs/速度大小，先固定给5帧，考虑提config）
+
         #方向和速度的质量都给critical来评测
         }
 

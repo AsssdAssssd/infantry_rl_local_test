@@ -32,8 +32,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("-v", "--vis", action="store_true", default=False)
     parser.add_argument("-e", "--exp_name", type=str, default="rotation")
-    parser.add_argument("-B", "--num_envs", type=int, default=1024)
-    parser.add_argument("--max_iterations", type=int, default=7000)
+    parser.add_argument("-B", "--num_envs", type=int, default=8192)
+    parser.add_argument("--max_iterations", type=int, default=15000)
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--terrain", choices=TERRAIN_PRESETS, default=None)
     parser.add_argument("--log-root", type=str, default="logs")
@@ -67,6 +67,8 @@ def main():
     if args.resume is None or args.resume_config == "current":
         env_cfg, obs_cfg, reward_cfg, command_cfg, curriculum_cfg = get_cfgs()
         train_cfg = get_train_cfg(args.exp_name)
+        train_cfg["algorithm"]["learning_rate"] = 2e-4 #TODO
+        train_cfg["algorithm"]["schedule"] = "fixed"
 
     if args.resume is not None:
         resume_plan = resolve_resume_plan(args.log_root, args.exp_name, args.resume, args.checkpoint)
@@ -133,7 +135,7 @@ def main():
         show_viewer=args.vis,
     )
 
-    runner = OnPolicyRunner(env, train_cfg, str(run_dir), device=gs.device)
+    runner = OnPolicyRunner(env, deepcopy(train_cfg), str(run_dir), device=gs.device)
     if resume_plan is not None:
         print(f"[rotate] resuming from: {resume_plan.checkpoint_path}")
         remaining_iterations = restore_training_state(runner, env, resume_plan, args.max_iterations)
