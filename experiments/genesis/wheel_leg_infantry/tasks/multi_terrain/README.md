@@ -20,7 +20,7 @@
 训练使用本目录的 `config.py`，`--load-weights` 同样使用该配置。
 `--resume` 默认恢复运行时保存的配置；如需续训时使用当前 `config.py`，添加 `--resume-config current`。
 
-训练需要可用的 CUDA/Genesis 环境。默认 64 个环境；所有任务的课程几何预先构建为独立区域，
+训练需要可用的 CUDA/Genesis 环境。默认每张 GPU 4096 个环境；所有任务的课程几何预先构建为独立区域，
 增大环境数量前应先测显存与吞吐。示例 checkpoint 路径需替换为实际文件。
 
 当前 Genesis ToF Raycaster 会为每个环境分配整个场景的三角面 BVH，即使地形使用
@@ -28,6 +28,36 @@
 4096 个环境仅 AABB、BVH 节点和主要排序缓存就约需 63 GiB，尚未包含物理仿真和 PPO。
 24 GiB GPU 请先使用 `-B 64`；不要直接沿用平地训练的 4096。构建时若出现字段 shape
 异常或显存不足，先降低 `-B` 验证；增加任务难度等级或网格精度也会增加面数与显存。
+
+## 双 GPU 训练
+
+在项目根目录使用 `torchrun` 启动两个进程；`-B` 始终表示**每张卡**的环境数：
+
+```bash
+CUDA_VISIBLE_DEVICES=0,1 .venv/bin/python -m torch.distributed.run \
+  --standalone --nnodes=1 --nproc_per_node=2 \
+  --module experiments.genesis.wheel_leg_infantry.tasks.multi_terrain.train \
+  -e multi_terrain_2gpu -B 4096 --max_iterations 4001
+
+# 同一个实验续训；两卡从同一个 checkpoint 恢复。
+CUDA_VISIBLE_DEVICES=0,1 .venv/bin/python -m torch.distributed.run \
+  --standalone --nnodes=1 --nproc_per_node=2 \
+  --module experiments.genesis.wheel_leg_infantry.tasks.multi_terrain.train \
+  -e multi_terrain_2gpu -B 4096 --resume --max_iterations 8001
+```
+
+每个进程独立仿真 4096 个环境，RSL-RL 同步 PPO 参数和梯度，总环境数 8192。
+每轮采样总量为 `4096 × 2 × num_steps_per_env`；默认 24 步即 196608 条 transition。
+首次验证建议使用 `-B 16 --max_iterations 2`，再根据每卡显存增加环境数；两卡显存不会合并供单个场景使用。
+支持单机多卡，启动时 `CUDA_VISIBLE_DEVICES` 使用数字 GPU 编号（可指定顺序）。
+入口按 `LOCAL_RANK` 为每个进程只保留一张卡，并设置相同物理编号的 `QD_VISIBLE_DEVICE`；
+各进程内的设备均为 `cuda:0`，项目的 Runner 适配层处理此编号与分布式 rank 的区别。
+
+仅 rank 0 创建版本目录、保存配置、日志和 checkpoint；所有进程共享该目录，种子为 `--seed + rank`。
+`run_metadata.json` 记录 `world_size`、`num_envs_per_gpu`、`total_num_envs` 和 `worker_seeds`。
+`--vis` 仅在 rank 0 显示。每卡任务配比相同，各自按本地回合推进成功率课程；
+TensorBoard 的任务指标和 checkpoint 的课程窗口来自 rank 0，续训时所有卡从该课程快照恢复。
+`--load-weights` 在所有卡加载同一份权重，并重新开始优化器与课程。
 
 ## 默认任务与配比
 
