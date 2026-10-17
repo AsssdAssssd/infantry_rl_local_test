@@ -204,7 +204,7 @@ def main():
     runner = OnPolicyRunner(env, train_cfg, str(run_dir), device=gs.device)
     runner.load(
         str(checkpoint_path),
-        load_cfg={"actor": True, "critic": True, "optimizer": False, "iteration": False, "rnd": False},
+        load_cfg={"actor": True, "critic": False, "optimizer": False, "iteration": False, "rnd": False},
         map_location=gs.device,
     )
     policy = runner.get_inference_policy(device=gs.device)

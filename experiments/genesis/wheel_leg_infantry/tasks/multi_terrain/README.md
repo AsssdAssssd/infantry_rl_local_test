@@ -61,6 +61,13 @@ TensorBoard 的任务指标和 checkpoint 的课程窗口来自 rank 0，续训�
 
 ## 默认任务与配比
 
+新训练默认启用 `obs_cfg["critic_task_one_hot"]`，仅在 critic 观测末尾追加 8 维任务 one-hot，actor 输入不变。
+编码顺序固定为 `locomotion, stairs_down, stairs_up, slope_up, slope_down, square_wave, platform_ridge_down, platform_ridge_up`；
+禁用部分任务或单任务评估时仍使用相同的 8 维编码，课程重新分配任务后随环境 reset 更新。
+旧 run 的保存配置没有该字段时，续训和评估保留旧观测维度。
+通过 `--load-weights` 迁移旧默认 MLP 权重到新训练时，critic 第一层新增的 8 列权重置零，保留初始 value。
+旧 checkpoint 要启用此功能应使用 `--load-weights` 开始新 run；完整 `--resume` 要求模型和优化器维度一致。
+
 配置入口：`config.py` 的 `get_cfgs()`，最终保存在 `env_cfg["multi_terrain"]["tasks"]`。
 
 | 任务 | 最终目标 | 默认课程 | 权重 |

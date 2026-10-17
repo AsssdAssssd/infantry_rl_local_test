@@ -40,11 +40,12 @@ def _get_curriculum_cfg():
             },
             {
                 "name": "stairsup",
-                "start_iteration": 3000,
+                "start_iteration": 2000,
                 "targets": {
-                    "domain_rand": {"strength": 0.4},
-                    "sensor_noise": {"strength": 0.4},
+                    "domain_rand": {"strength": 0.5},
+                    "sensor_noise": {"strength": 0.5},
                     "task_weights": {
+                        "locomotion": 5.0,
                         "stairs_up": 1.0,
                     },
                     "task_command_ranges": {
@@ -65,10 +66,10 @@ def _get_curriculum_cfg():
             },
             {
                 "name": "all",
-                "start_iteration": 5000,
+                "start_iteration": 4000,
                 "targets": {
-                    "domain_rand": {"strength": 0.5},
-                    "sensor_noise": {"strength": 0.5},
+                    "domain_rand": {"strength": 0.6},
+                    "sensor_noise": {"strength": 0.6},
                     "task_weights": {
                         "platform_ridge_up": 1.0,
                     },
@@ -254,10 +255,10 @@ def get_cfgs():
             promote_threshold=0.9,
             demote_threshold=0.2,
             # 对应 stairs_up.LEVELS 的等级；机身目标离地高度（m），两端相同表示固定高度。
-            overrides={
-                0: dict(commands=dict(base_height_range=[0.25, 0.30])),
-                1: dict(commands=dict(base_height_range=[0.25, 0.30])),
-                2: dict(commands=dict(base_height_range=[0.28, 0.32])),
+            overrides={ 
+                0: dict(commands=dict(base_height_range=[0.26, 0.30])),
+                1: dict(commands=dict(base_height_range=[0.28, 0.32])),
+                2: dict(commands=dict(base_height_range=[0.30, 0.34])),
                 3: dict(commands=dict(base_height_range=[0.32, 0.36])),
                 4: dict(commands=dict(base_height_range=[0.34, 0.36])),
                 5: dict(commands=dict(base_height_range=[0.36, 0.36])),
@@ -345,16 +346,17 @@ def get_cfgs():
             gated_tracking_ang_vel=7.0,
             task_progress=5.0,
             task_success=20.0,
-            task_lateral=-2.0,
-            task_heading=-1.0,
+            task_lateral=-5.0,
+            task_heading=-5.0,
             base_balance=-20.0,
             leg_angle_limits=-5.0,
-            joint_vel=-0.001,
             wheel_action_rate=-0.05,
+            wheel_airborne=-10.0,
+            joint_vel=-0.001,
             leg_action_rate=-0.02,
             leg_symmetry=-5.0,
             leg_symmetry_bonus=2.0,
-            base_contact=-10.0,
+            base_contact=-30.0,
             death=-10.0,
         ),
         resampling_time_s=10.0,
@@ -365,7 +367,7 @@ def get_cfgs():
             termination_if_roll_greater_than=10.0,
             termination_if_pitch_greater_than=10.0,
             tilt_termination_duration_s=0.3,
-            base_contact_termination_duration_s=0.5,
+            base_contact_termination_duration_s=0.1,
             corridor_half_width=1.0,
             stall_timeout_s=1.0,
             progress_epsilon=0.1,
@@ -413,7 +415,9 @@ def get_cfgs():
             joint_vel=-0.001,
             wheel_action_rate=-0.05,
             leg_action_rate=-0.02,
-            base_contact=-10.0,
+            leg_symmetry=-5.0,
+            leg_symmetry_bonus=2.0,
+            base_contact=-30.0,
             death=-10.0,
         ),
         resampling_time_s=10.0,
@@ -465,7 +469,7 @@ def get_cfgs():
             gated_tracking_ang_vel=7.0,
             task_progress=5.0,
             task_success=20.0,
-            task_lateral=-2.0,
+            task_lateral=-1.0,
             task_heading=-0.5,
             base_balance=-20.0,
             leg_angle_limits=-5.0,
@@ -617,16 +621,17 @@ def get_cfgs():
             promote_threshold=0.9,
             demote_threshold=0.2,
             overrides={
-                0: dict(commands=dict(base_height_range=[0.25, 0.30])),
-                1: dict(commands=dict(base_height_range=[0.25, 0.30])),
-                2: dict(commands=dict(base_height_range=[0.28, 0.32])),
-                3: dict(commands=dict(base_height_range=[0.32, 0.36])),
+                0: dict(commands=dict(base_height_range=[0.26, 0.30])),
+                1: dict(commands=dict(base_height_range=[0.28, 0.32])),
+                2: dict(commands=dict(base_height_range=[0.30, 0.34])),
+                3: dict(commands=dict(base_height_range=[0.33, 0.36])),
                 4: dict(commands=dict(base_height_range=[0.36, 0.36])),
             },
         ),
     )
 
     env["multi_terrain"] = dict(tasks=tasks, level_catalog=level_catalog())
+    obs["critic_task_one_hot"] = True
     env.update(
         episode_length_s=25.0,
         resampling_time_s=0.01,

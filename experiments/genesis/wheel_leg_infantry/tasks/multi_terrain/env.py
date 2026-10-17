@@ -7,6 +7,7 @@ import torch
 
 from ..locomotion.env import LocomotionEnv
 from .buffers import LocomotionBuffers, StairsDownBuffers, StairsUpBuffers
+from .config import TASK_NAMES
 from .curriculum import allocate_counts, initial_task_counts, resolve_task_command_ranges, resolve_tasks
 from .rewards import MultiTerrainRewards
 from .terrain import TaskTerrain
@@ -52,6 +53,9 @@ class MultiTerrainEnv(MultiTerrainRewards, LocomotionEnv):
     def _initialize_task_buffers(self):
         # 所有任务共用：分组、进度、计时、回合结果。
         self.task_ids = self.terrain.fixed_types
+        # task_ids 使用当前任务子集的局部编号；观测始终使用完整 TASK_NAMES 编码。
+        self.task_one_hot_table = torch.eye(len(TASK_NAMES), device=self.device, dtype=self.base_pos.dtype)[
+            [TASK_NAMES.index(name) for name in self.tasks]]
         self.traversal = torch.tensor([name != "locomotion" for name in self.tasks], device=self.device)[self.task_ids]
         self.task_origin_xy = self.base_pos.new_zeros((self.num_envs, 2))
         self.task_forward_xy = self.base_pos.new_zeros((self.num_envs, 2))
@@ -99,6 +103,12 @@ class MultiTerrainEnv(MultiTerrainRewards, LocomotionEnv):
 
     def _value(self, name):
         return self.tables[name][self.terrain_tile_index]
+
+    def _get_task_privileged_observation_components(self):
+        # 旧 run 的保存配置没有此字段，保留原 critic 输入维度以支持完整续训。
+        if not self.obs_cfg.get("critic_task_one_hot", False):
+            return {}
+        return {"privileged_task_one_hot": self.task_one_hot_table[self.task_ids]}
 
     def _task_progress_position(self, wheels):
         # 上台阶以双轮中心为进度参考，避免轮子不动时机身前倾也获得前进奖励。
