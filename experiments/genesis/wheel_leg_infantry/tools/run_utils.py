@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import json
+import os
 import pickle
 import platform
 import re
 import subprocess
 import sys
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from importlib import metadata
@@ -32,6 +34,81 @@ def load_runner_class():
     from rsl_rl.runners import OnPolicyRunner
 
     return OnPolicyRunner
+
+
+def init_distributed() -> dict[str, Any]:
+    """解析 torchrun 环境并初始化分布式训练。
+
+    单进程时返回本卡设备；多进程时提前 ``init_process_group`` 并把每个 rank
+    绑定到 ``LOCAL_RANK`` 对应的显卡。Genesis 在 ``gs.init`` 时通过
+    ``torch.cuda.current_device()`` 选卡，因此必须在初始化 Genesis 之前调用。
+    """
+    import torch
+
+    world_size = int(os.environ.get("WORLD_SIZE", "1"))
+    local_rank = int(os.environ.get("LOCAL_RANK", "0"))
+    global_rank = int(os.environ.get("RANK", "0"))
+    is_distributed = world_size > 1
+
+    if is_distributed:
+        import torch.distributed as dist
+
+        # Genesis 的 Quadrants 后端只使用进程可见集合中的 0 号卡，且忽略
+        # torch.cuda.set_device。因此每个进程只暴露自己的显卡，并把 LOCAL_RANK
+        # 归一化为 0 以匹配 RSL-RL 的 device 校验（RSL-RL 只用 LOCAL_RANK 选卡）。
+        os.environ["CUDA_VISIBLE_DEVICES"] = str(local_rank)
+        os.environ["LOCAL_RANK"] = "0"
+        local_rank = 0
+
+        if torch.cuda.is_available():
+            torch.cuda.set_device(0)
+        if not dist.is_initialized():
+            dist.init_process_group(backend="nccl", rank=global_rank, world_size=world_size)
+
+    device = f"cuda:{torch.cuda.current_device()}" if torch.cuda.is_available() else "cpu"
+    return {
+        "is_distributed": is_distributed,
+        "world_size": world_size,
+        "local_rank": local_rank,
+        "global_rank": global_rank,
+        "device": device,
+    }
+
+
+@contextmanager
+def skip_duplicate_process_group_init():
+    """已提前初始化进程组时，跳过 RSL-RL 内部的重复初始化。
+
+    RSL-RL 的 ``OnPolicyRunner`` 在检测到多卡时会再次调用
+    ``torch.distributed.init_process_group``，而默认进程组只能初始化一次。
+    """
+    import torch.distributed as dist
+
+    original = dist.init_process_group
+
+    def guarded(*args: Any, **kwargs: Any) -> None:
+        if dist.is_initialized():
+            return
+        return original(*args, **kwargs)
+
+    dist.init_process_group = guarded
+    try:
+        yield
+    finally:
+        dist.init_process_group = original
+
+
+def create_or_broadcast_run_dir(log_root: str | Path, exp_name: str, dist_info: Mapping[str, Any]) -> Path:
+    """rank0 创建版本目录，其余 rank 通过进程组接收同一路径。"""
+    holder: list[str | None] = [None]
+    if not dist_info["is_distributed"] or dist_info["global_rank"] == 0:
+        holder[0] = str(create_versioned_run_dir(log_root, exp_name))
+    if dist_info["is_distributed"]:
+        import torch.distributed as dist
+
+        dist.broadcast_object_list(holder, src=0)
+    assert holder[0] is not None
+    return Path(holder[0])
 
 
 @dataclass(frozen=True)

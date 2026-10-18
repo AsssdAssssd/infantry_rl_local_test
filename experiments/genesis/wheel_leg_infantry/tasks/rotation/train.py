@@ -15,12 +15,14 @@ from ...terrains.curriculum import terrain_course_configs
 from ...core.randomization_config import add_randomization_arguments, apply_randomization_arguments
 from ...tools.run_utils import (
     add_resume_arguments,
-    create_versioned_run_dir,
+    create_or_broadcast_run_dir,
+    init_distributed,
     load_runner_class,
     load_run_configs,
     resolve_resume_plan,
     restore_training_state,
     save_run_artifacts,
+    skip_duplicate_process_group_init,
 )
 from .config import get_cfgs
 from .env import RotateEnv
@@ -62,6 +64,9 @@ def main():
         if not args.load_weights.is_file():
             parser.error(f"Weights checkpoint does not exist: {args.load_weights}")
 
+    dist_info = init_distributed()
+    if dist_info["is_distributed"]:
+        print(f"[rotate] distributed training: rank {dist_info['global_rank']}/{dist_info['world_size']} on {dist_info['device']}")
     OnPolicyRunner = load_runner_class()
     resume_plan = None
     if args.resume is None or args.resume_config == "current":
@@ -96,7 +101,7 @@ def main():
     apply_randomization_arguments(env_cfg, obs_cfg, args)
     remaining_iterations = args.max_iterations
 
-    run_dir = create_versioned_run_dir(args.log_root, args.exp_name)
+    run_dir = create_or_broadcast_run_dir(args.log_root, args.exp_name, dist_info)
     train_cfg["run_name"] = f"{args.exp_name}/{run_dir.name}"
     print(f"[rotate] saving this run to: {run_dir}")
 
@@ -120,7 +125,8 @@ def main():
         run_arguments["resume_from"] = str(resume_plan.checkpoint_path.resolve())
     if args.load_weights is not None:
         run_arguments["weights_from"] = str(args.load_weights)
-    save_run_artifacts(run_dir, configs, run_arguments)
+    if not dist_info["is_distributed"] or dist_info["global_rank"] == 0:
+        save_run_artifacts(run_dir, configs, run_arguments)
 
     gs.init(backend=gs.gpu, precision="32", logging_level="warning", seed=args.seed, performance_mode=True)
 
@@ -135,7 +141,8 @@ def main():
         show_viewer=args.vis,
     )
 
-    runner = OnPolicyRunner(env, deepcopy(train_cfg), str(run_dir), device=gs.device)
+    with skip_duplicate_process_group_init():
+        runner = OnPolicyRunner(env, deepcopy(train_cfg), str(run_dir), device=dist_info["device"])
     if resume_plan is not None:
         print(f"[rotate] resuming from: {resume_plan.checkpoint_path}")
         remaining_iterations = restore_training_state(runner, env, resume_plan, args.max_iterations)
