@@ -56,7 +56,7 @@ class RotateRewards:
         target_speed=self.commands[:,0]
         err=torch.square(real_forward_speed-target_speed)
         # 只挂姿态门（机身正不正），不挂高度门：高度没达标也别把"走"的奖励掐死
-        return self.tracking_gate * torch.exp(-err/0.5)
+        return self.tracking_gate * torch.exp(-err/0.2)
 
     def _reward_gimbal_spin_heading_error(self):
         _, vertical_speed = self._base2gimbal_lin_vel()
@@ -89,7 +89,7 @@ class RotateRewards:
         #有一说一如果消融的话，这些个新加的reward不应该都置0吗  TODO
         real_forward_speed,_=self._base2gimbal_lin_vel()
         target_speed=self.commands[:,0]
-        return torch.clamp(real_forward_speed-target_speed,min=0.0)
+        return torch.clamp(target_speed-real_forward_speed,min=0.0)
 
     def _reward_gimbal_spin_cross_track(self):
         excess = torch.clamp(

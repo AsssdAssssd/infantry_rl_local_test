@@ -20,26 +20,26 @@ from ...tools.run_utils import (
 )
 from ..locomotion.config_common import get_final_command_cfg
 from .env import RotateEnv
-
+import math
 
 DEFAULT_COMMAND_SEQUENCE = [
-    {"step": 0, "lin_vel": 0.5, "ang_vel": 0.0, "base_height": 0.22, "gimbal_yaw_vel": 0.0, "translation_direction": 0.0},
-    {"step": 500, "ang_vel": -3.0},
-    {"step": 1167, "ang_vel": 0.0},
-    {"step": 1333, "ang_vel": 3.0,"base_height": 0.30},
-    {"step": 2000, "ang_vel": 0.0},
-    {"step": 2167, "ang_vel": 6.0,"base_height": 0.25},
-    {"step": 2833, "ang_vel": 0.0},
-    {"step": 3000, "ang_vel": -6.0},
-    {"step": 3667, "ang_vel": 0.0},
-    {"step": 3833, "ang_vel": 10.0},
-    {"step": 4500, "ang_vel": 0.0},
-    {"step": 4667, "ang_vel": -10.0},
-    {"step": 5333, "ang_vel": 0.0},
-    {"step": 5500, "ang_vel": 13.0},
-    {"step": 6167, "ang_vel": 0.0},
-    {"step": 6333, "ang_vel": -13.0},
-    {"step": 7000, "ang_vel": 0.0},
+    {"step": 0, "lin_vel": 0.5, "ang_vel": 0.0, "base_height": 0.28, "gimbal_yaw_vel": 0.0, "translation_direction": 0.0},
+    {"step": 500, "ang_vel": -9.0,"translation_direction": math.pi/2,"gimbal_yaw_vel": 0.5},
+    # {"step": 1167, "ang_vel": 0.0},
+    # {"step": 1333, "ang_vel": 3.0,"base_height": 0.30},
+    # {"step": 2000, "ang_vel": 0.0},
+    # {"step": 2167, "ang_vel": 6.0,"base_height": 0.25},
+    # {"step": 2833, "ang_vel": 0.0},
+    {"step": 1000, "ang_vel": -9.0, "lin_vel": 0.5,"gimbal_yaw_vel": 0.0},
+    # {"step": 3667, "ang_vel": 0.0},
+    # {"step": 3833, "ang_vel": 10.0},
+    # {"step": 4500, "ang_vel": 0.0},
+    {"step": 1500, "ang_vel": -9.0},
+    # {"step": 5333, "ang_vel": 0.0},
+    # {"step": 5500, "ang_vel": 13.0},
+    # {"step": 6167, "ang_vel": 0.0},
+    {"step": 2000, "ang_vel": -9.0},
+    # {"step": 7000, "ang_vel": 0.0},
 ]
 
 
