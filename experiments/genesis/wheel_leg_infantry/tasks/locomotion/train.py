@@ -38,7 +38,7 @@ def validate_locomotion_config(env_cfg, curriculum_cfg):
 def main(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument("-v", "--vis", action="store_true", default=False)
-    parser.add_argument("-e", "--exp_name", type=str, default="locomotion_v5")
+    parser.add_argument("-e", "--exp_name", type=str, default="locomotion_v6")
     parser.add_argument("-B", "--num_envs", type=int, default=8192, help="parallel locomotion environments (default: 8192)")
     parser.add_argument("--max_iterations", type=int, default=10001)
     parser.add_argument("--seed", type=int, default=1)

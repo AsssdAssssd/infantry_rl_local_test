@@ -232,13 +232,13 @@ def initial_task_counts(tasks, num_envs, curriculum_cfg=None):
     """场景构建前校验全部阶段配额与命令，返回第 0 轮的任务分配。"""
     curriculum = CurriculumManager(curriculum_cfg)
     initial = allocate_counts(tasks, num_envs)
-    allowed_targets = {"domain_rand", "sensor_noise", "task_weights", "task_command_ranges"}
+    allowed_targets = {"domain_rand", "sensor_noise", "wheel_slip", "task_weights", "task_command_ranges"}
     weights = {}
     command_ranges = {}
     for stage in curriculum.stages:
         targets = stage.get("targets", {})
         if set(targets) - allowed_targets:
-            raise ValueError("multi_terrain global curriculum only controls domain_rand/sensor_noise/task_weights/task_command_ranges")
+            raise ValueError("multi_terrain global curriculum only controls domain_rand/sensor_noise/wheel_slip/task_weights/task_command_ranges")
         changes = targets.get("task_weights", {})
         if not isinstance(changes, dict):
             raise ValueError("task_weights must map known task names to weights")

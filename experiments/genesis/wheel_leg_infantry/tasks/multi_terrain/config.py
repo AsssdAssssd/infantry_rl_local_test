@@ -18,6 +18,7 @@ def _get_curriculum_cfg():
                 "targets": {
                     "domain_rand": {"strength": 0.0},
                     "sensor_noise": {"strength": 0.0},
+                    "wheel_slip": {"strength": 0.0},
                     "task_weights": {
                         "platform_ridge_down": 0.0,
                         "platform_ridge_up": 0.0,
@@ -31,6 +32,7 @@ def _get_curriculum_cfg():
                 "targets": {
                     "domain_rand": {"strength": 0.4},
                     "sensor_noise": {"strength": 0.4},
+                    "wheel_slip": {"strength": 0.4},
                     "task_weights": {
                         "platform_ridge_down": 1.0,
                         "stairs_down": 0.5,
@@ -44,6 +46,7 @@ def _get_curriculum_cfg():
                 "targets": {
                     "domain_rand": {"strength": 0.5},
                     "sensor_noise": {"strength": 0.5},
+                    "wheel_slip": {"strength": 0.5},
                     "task_weights": {
                         "locomotion": 5.0,
                         "stairs_up": 1.0,
@@ -70,6 +73,7 @@ def _get_curriculum_cfg():
                 "targets": {
                     "domain_rand": {"strength": 0.6},
                     "sensor_noise": {"strength": 0.6},
+                    "wheel_slip": {"strength": 0.6},
                     "task_weights": {
                         "platform_ridge_up": 1.0,
                     },
@@ -128,7 +132,7 @@ def get_cfgs():
             base_balance=-30.0,
             leg_symmetry=-10.0,
             leg_angle_limits=-5.0,
-            leg_symmetry_bonus=1.0,
+            leg_symmetry_bonus=2.0,
             base_height=-10.0,
             height_gate=10.0,
             joint_vel=-0.02,
@@ -182,20 +186,21 @@ def get_cfgs():
         rewards=dict(
             task_progress=5.0,
             task_success=30.0,
+            leg_symmetry_bonus=5.0,
             tracking_lin_vel=-2.0,
             tracking_ang_vel=-3.0,
             stairs_up_support=2.0,
             stairs_up_retract=2.0,
             stairs_up_takeoff=2.0,  # 双轮首次离开台下地面，一回合只奖励一次。
-            stairs_up_landing_distance=3.0,  # 首轮触台距离奖励，单位为奖励/m，仅首次触台发放。
+            stairs_up_landing_distance=2.0,  # 首轮触台距离奖励，单位为奖励/m，仅首次触台发放。
             stairs_up_wheel_wall_force=-0.1,  # 轮子撞立面的法向力总和（N），按 dt 积分。
             stairs_up_approach_lift=1.0,
-            stairs_up_backswing=5.0,
-            stairs_up_forward_swing=5.0,  # 轮子抬够后向前摆腿的新增进度，与伸腿同时引导。
+            stairs_up_backswing=4.0,
+            stairs_up_forward_swing=3.0,  # 轮子抬够后向前摆腿的新增进度，与伸腿同时引导。
             stairs_up_extend=5.0,  # 轮子位于台面上方时，新增伸腿长度的进度奖励。
             stairs_up_wheel_support=2.0,  # 落台阶段双轮首次真实接触上台面支撑，一回合一次。
             stairs_up_wheel_forward_action=1.0,  # 双轮落台接地后、机身前向速度不超过 command 时奖励正转 action，按 dt 积分。
-            base_balance=-30.0,
+            base_balance=-50.0,
             death=-10.0,
         ),
         resampling_time_s=3.0,
@@ -291,6 +296,7 @@ def get_cfgs():
             joint_vel=-0.001,
             wheel_action_rate=-0.05,
             leg_action_rate=-0.05,
+            leg_symmetry_bonus=2.0,
             base_contact=-10.0,
             stairs_down_landing_stability=-15.0,
             death=-10.0,
@@ -340,8 +346,8 @@ def get_cfgs():
             standing_probability=0.0,
         ),
         rewards=dict(
-            tracking_lin_vel=-2.0,
-            tracking_ang_vel=-3.0,
+            tracking_lin_vel=-10.0,
+            tracking_ang_vel=-10.0,
             gated_tracking_lin_vel=5.0,
             gated_tracking_ang_vel=7.0,
             task_progress=5.0,
@@ -355,13 +361,13 @@ def get_cfgs():
             joint_vel=-0.001,
             leg_action_rate=-0.02,
             leg_symmetry=-5.0,
-            leg_symmetry_bonus=2.0,
+            leg_symmetry_bonus=3.0,
             base_contact=-30.0,
             death=-10.0,
         ),
         resampling_time_s=10.0,
         terrain=dict(preset="slope_up", tile_size=[16.0, 6.0]),
-        traversal=dict(landing_length=0.8),
+        traversal=dict(landing_length=2.0),
         termination=dict(
             episode_length_s=10.0,
             termination_if_roll_greater_than=10.0,
@@ -373,8 +379,8 @@ def get_cfgs():
             progress_epsilon=0.1,
         ),
         success=dict(
-            max_roll_deg=10.0,
-            max_pitch_deg=10.0,
+            max_roll_deg=2.0,
+            max_pitch_deg=2.0,
             wheel_clearance_m=0.15,
             wheel_surface_tolerance_m=0.08,
         ),
@@ -402,8 +408,8 @@ def get_cfgs():
             standing_probability=0.0,
         ),
         rewards=dict(
-            tracking_lin_vel=-2.0,
-            tracking_ang_vel=-3.0,
+            tracking_lin_vel=-10.0,
+            tracking_ang_vel=-10.0,
             gated_tracking_lin_vel=5.0,
             gated_tracking_ang_vel=7.0,
             task_progress=5.0,
@@ -434,8 +440,8 @@ def get_cfgs():
             progress_epsilon=0.1,
         ),
         success=dict(
-            max_roll_deg=10.0,
-            max_pitch_deg=10.0,
+            max_roll_deg=2.0,
+            max_pitch_deg=2.0,
             wheel_clearance_m=0.15,
             wheel_surface_tolerance_m=0.08,
         ),
@@ -583,14 +589,15 @@ def get_cfgs():
             tracking_lin_vel=-2.0,
             tracking_ang_vel=-3.0,
             gated_tracking_lin_vel=5.0,
-            gated_tracking_ang_vel=7.0,
+            gated_tracking_ang_vel=2.0,
             task_progress=5.0,
             task_success=20.0,
-            base_balance=-2.0,
+            base_balance=-30.0,
             joint_vel=-0.001,
             wheel_action_rate=-0.05,
             leg_action_rate=-0.02,
-            base_contact=-1.0,
+            leg_symmetry_bonus=3.0,
+            # base_contact=-1.0,
             death=-10.0,
         ),
         resampling_time_s=10.0,
@@ -635,9 +642,9 @@ def get_cfgs():
     env.update(
         episode_length_s=25.0,
         resampling_time_s=0.01,
-        base_init_pos_range=[[-0.6, 0.4], [0.0, 0.0], [0.22, 0.22]],
+        base_init_pos_range=[[-0.6, 0.5], [0.0, 0.0], [0.22, 0.22]],
         # 地形保持固定方向；出生 yaw 决定本回合斜向跨越的参考线。
-        base_init_rpy_offset_range_deg=[[0.0, 0.0], [0.0, 0.0], [-5.0, 5.0]],
+        base_init_rpy_offset_range_deg=[[0.0, 0.0], [0.0, 0.0], [-10.0, 10.0]],
     )
     # 仅注册奖励函数，实际系数按各环境本回合所处的任务/课程阶段查表。
     reward["reward_scales"] = dict.fromkeys(set().union(*(task["rewards"] for task in tasks.values())), 0.0)

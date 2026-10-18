@@ -89,6 +89,7 @@ def _curriculum_cfg() -> dict:
                 "targets": {
                     "domain_rand": {"strength": 0.0},
                     "sensor_noise": {"strength": 0.0},
+                    "wheel_slip": {"strength": 0.0},
                     "reset_ranges": {
                         "base_init_pos_range": [[0.0, 0.0], [0.0, 0.0], [0.22, 0.22]],
                         "base_init_rpy_offset_range_deg": [[0.0, 0.0], [0.0, 0.0], [0.0, 0.0]],
@@ -116,6 +117,7 @@ def _curriculum_cfg() -> dict:
                     "standing_reward": {"tracking_sigma": 0.10},
                     "domain_rand": {"strength": 0.0},
                     "sensor_noise": {"strength": 0.0},
+                    "wheel_slip": {"strength": 0.0},
                     "reset_ranges": {
                         "base_init_pos_range": [[0.0, 0.0], [0.0, 0.0], [0.22, 0.22]],
                         "base_init_rpy_offset_range_deg": [[0.0, 0.0], [0.0, 0.0], [0.0, 0.0]],
@@ -152,6 +154,7 @@ def _curriculum_cfg() -> dict:
                     "standing_reward": {"tracking_sigma": 0.05},
                     "domain_rand": {"strength": 0.0},
                     "sensor_noise": {"strength": 0.0},
+                    "wheel_slip": {"strength": 0.0},
                     "reset_ranges": {
                         "base_init_pos_range": [[0.0, 0.0], [0.0, 0.0], [0.22, 0.22]],
                         "base_init_rpy_offset_range_deg": [[0.0, 0.0], [0.0, 0.0], [0.0, 0.0]],
@@ -189,6 +192,7 @@ def _curriculum_cfg() -> dict:
                     "standing_reward": {"tracking_sigma": 0.02},
                     "domain_rand": {"strength": 0.4},
                     "sensor_noise": {"strength": 0.4},
+                    "wheel_slip": {"strength": 0.4},
                     "reset_ranges": {
                         "base_init_pos_range": [[0.0, 0.0], [0.0, 0.0], [0.22, 0.24]],
                         "base_init_rpy_offset_range_deg": [[0.0, 0.0], [0.0, 0.0], [0.0, 0.0]],
@@ -222,6 +226,7 @@ def _curriculum_cfg() -> dict:
                 "targets": {
                     "domain_rand": {"strength": 1.0},
                     "sensor_noise": {"strength": 1.0},
+                    "wheel_slip": {"strength": 1.0},
                     "reset_ranges": {
                         "base_init_pos_range": [[0.0, 0.0], [0.0, 0.0], [0.22, 0.24]],
                         "base_init_rpy_offset_range_deg": [[0.0, 0.0], [0.0, 0.0], [0.0, 0.0]],
@@ -230,7 +235,7 @@ def _curriculum_cfg() -> dict:
                     },
                     "command_ranges": {
                         "standing_probability": 0.25,
-                        "lin_vel_range": [-3.7, 3.7],
+                        "lin_vel_range": [-3.5, 3.5],
                         "ang_vel_range": [-6.0, 6.0],
                         "base_height_range": [0.20, 0.36],
                     },

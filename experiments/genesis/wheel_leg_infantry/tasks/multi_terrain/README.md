@@ -152,7 +152,10 @@ overrides={
 若全局阶段的 `task_command_ranges.stairs_up` 也指定了 `base_height_range`，则以全局阶段覆盖为准。
 
 locomotion 固定使用 plane 的 0 级，完整时长回合内的线速度、角速度、高度 RMSE 达标记为成功，
-阈值在 `tracking_success` 中。全局 `curriculum_cfg` 由 `config.py` 的 `_get_curriculum_cfg()` 返回，控制动力学随机化、传感器噪声强度、任务配额和各地形命令范围。
+阈值在 `tracking_success` 中。全局 `curriculum_cfg` 由 `config.py` 的 `_get_curriculum_cfg()` 返回，控制动力学随机化、传感器噪声、双轮独立打滑强度、任务配额和各地形命令范围。
+打滑使用独立目标 `"wheel_slip": {"strength": 0.4}` 和开关 `--wheel-slip/--no-wheel-slip`；
+默认课程与动力学随机化使用相同强度，各目标可独立调整。
+配置、时间单位和摩擦恢复规则见 [双轮独立随机打滑](../locomotion/README.md#双轮独立随机打滑)。
 以下示例将两种凸台延后到 15000 轮启用；当前默认配置在 100 轮启用两种凸台，具体以 `config.py` 为准：
 
 ```python

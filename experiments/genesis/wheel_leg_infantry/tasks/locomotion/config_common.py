@@ -81,6 +81,7 @@ def get_env_cfg() -> dict:
 
 def get_obs_cfg() -> dict:
     return {
+        "critic_wheel_slip": True,  # 左右轮打滑事件标志，打滑为 1，否则为 0。
         # actor 使用 IMU、轮速等真机观测
         "imu": {
             "link_name": "base_link",

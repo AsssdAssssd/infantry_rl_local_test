@@ -125,6 +125,10 @@ def print_evaluation_diagnostics(env, step):
     print(f"  randomization strength   target={randomization['domain_rand_strength']:.2f}, "
           f"episode={randomization['domain_rand_episode_strength'].item():.2f}")
     print(f"  friction ratio           {randomization['friction_ratio'].item():.3f}")
+    slip = env.wheel_slip.diagnostics()
+    print(f"  wheel slip L/R           active={slip['wheel_slip_active'].tolist()}, "
+          f"ratio={format_tensor(slip['wheel_slip_ratio'])}, "
+          f"strength={slip['wheel_slip_episode_strength'].item():.2f}")
     print(f"  added base mass          {randomization['added_mass_kg'].item():+.3f} kg")
     print(f"  COM displacement         {format_tensor(randomization['com_displacement_m'])} m")
     print(f"  motor strength           {randomization['motor_strength'].item():.3f}")

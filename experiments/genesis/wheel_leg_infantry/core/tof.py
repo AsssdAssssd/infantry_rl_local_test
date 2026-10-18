@@ -221,8 +221,12 @@ class GenesisToF:
             self._mount_raw[sensor._cache_offset:sensor._cache_offset + 1].T for sensor in self.sensors
         ], dim=-1)
 
-    def read(self, *, after_reset=False, env_ids=None, strength=1.0):
-        if self.randomization is not None and self.randomization.mount_active:
+    def read_ground_truth(self, *, after_reset=False, env_ids=None):
+        """标称安装位姿的无噪声测距，绕过安装误差、偏置和白噪声。"""
+        return self.read(after_reset=after_reset, env_ids=env_ids, ground_truth=True)
+
+    def read(self, *, after_reset=False, env_ids=None, strength=1.0, ground_truth=False):
+        if not ground_truth and self.randomization is not None and self.randomization.mount_active:
             distances = self._read_randomized_mounts(after_reset=after_reset)
         elif after_reset:
             # Genesis 的 read() 只读取 eager cache；set_qpos 不刷新传感器。
@@ -243,8 +247,11 @@ class GenesisToF:
                 for sensor in self.sensors
             ], dim=-1)
         else:
-            distances = torch.cat([sensor.read().distances.flatten(1) for sensor in self.sensors], dim=-1)
+            distances = torch.cat([
+                (sensor.read_ground_truth() if ground_truth else sensor.read()).distances.flatten(1)
+                for sensor in self.sensors
+            ], dim=-1)
         selected = slice(None) if env_ids is None else env_ids
-        if self.randomization is not None:
+        if not ground_truth and self.randomization is not None:
             return self.randomization.measure(distances[selected], self.cfg, env_ids, strength=strength)
         return sanitize_tof_distances(distances[selected], self.cfg)
