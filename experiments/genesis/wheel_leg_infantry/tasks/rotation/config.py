@@ -301,7 +301,7 @@ def _curriculum_cfg() -> dict:
             },
             {
                 "name": "locomotion_turn",
-                "start_iteration": 13000,
+                "start_iteration": 12000,
                 "targets": {
                     "domain_rand": {"strength": 0.2},
                     "sensor_noise": {"strength": 0.2},
@@ -317,7 +317,7 @@ def _curriculum_cfg() -> dict:
                         "ang_vel_range": [-10.0, 10.0],
                         "base_height_range": [0.20, 0.36],
                         "gimbal_yaw_vel_range": [0.0, 0.0],
-                        "translation_direction_range": [-math.pi, math.pi],
+                        "translation_direction_range": [-math.pi/2, math.pi/2],
                     },
                     "reward_scales": {
                         "gimbal_spin_track_lin_vel_yaw_frame": 12.0,
@@ -330,7 +330,7 @@ def _curriculum_cfg() -> dict:
 
             {
                 "name": "full_range",
-                "start_iteration": 14000,
+                "start_iteration": 13500,
                 "targets": {
                     "domain_rand": {"strength": 0.3},
                     "sensor_noise": {"strength": 0.3},
