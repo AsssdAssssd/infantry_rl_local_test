@@ -38,6 +38,12 @@ def main():
     parser.add_argument("--max_iterations", type=int, default=15000)
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--terrain", choices=TERRAIN_PRESETS, default=None)
+    parser.add_argument("--difficulty", type=int, default=None,
+                        help="terrain level for --terrain (see terrains/<preset>.py LEVELS)")
+    parser.add_argument("--terrain-curriculum", choices=("slope_up", "slope_down"), default=None,
+                        help="rotation-local slope curriculum; keeps the implementation inside tasks/rotation")
+    parser.add_argument("--terrain-schedule", type=str, default=None,
+                        help="start:difficulty,... for --terrain-curriculum (default: 7000:0,10000:2,13500:4)")
     parser.add_argument("--log-root", type=str, default="logs")
     parser.add_argument("--load-weights", type=Path, default=None)
     parser.add_argument("--warm-start", type=Path, default=None,
@@ -63,6 +69,12 @@ def main():
         args.load_weights = args.load_weights.expanduser().resolve()
         if not args.load_weights.is_file():
             parser.error(f"Weights checkpoint does not exist: {args.load_weights}")
+    if args.terrain is not None and args.terrain_curriculum is not None:
+        parser.error("--terrain and --terrain-curriculum cannot be combined")
+    if args.terrain_schedule is not None and args.terrain_curriculum is None:
+        parser.error("--terrain-schedule requires --terrain-curriculum")
+    if args.difficulty is not None and args.difficulty < 0:
+        parser.error("--difficulty must be non-negative")
 
     dist_info = init_distributed()
     if dist_info["is_distributed"]:
@@ -86,17 +98,35 @@ def main():
             curriculum_cfg = deepcopy(saved_configs["curriculum_cfg"])
             train_cfg = deepcopy(saved_configs["train_cfg"])
 
+    if args.terrain_curriculum is not None:
+        from .terrain_curriculum import (
+            DEFAULT_SLOPE_SCHEDULE,
+            merge_curriculum_stages,
+            parse_schedule,
+            slope_schedule_stages,
+        )
+
+        schedule = DEFAULT_SLOPE_SCHEDULE if args.terrain_schedule is None else parse_schedule(args.terrain_schedule)
+        curriculum_cfg = merge_curriculum_stages(
+            curriculum_cfg, slope_schedule_stages(args.terrain_curriculum, schedule)
+        )
+
     env_cfg.setdefault("terrain", default_terrain_cfg())
     env_cfg["terrain"].setdefault("level_catalog", level_catalog())
-    if args.terrain is not None:
+    if args.terrain is not None or args.difficulty is not None:
         targets = [env_cfg["terrain"]] + [
             stage["targets"]["terrain"] for stage in curriculum_cfg.get("stages", [])
             if "terrain" in stage.get("targets", {})
         ]
         for target in targets:
-            target["preset"] = args.terrain
-            for key in ("mixture", "adaptive", "difficulty"):
-                target.pop(key, None)
+            if args.terrain is not None:
+                target["preset"] = args.terrain
+                for key in ("mixture", "adaptive"):
+                    target.pop(key, None)
+            if args.difficulty is not None:
+                target["difficulty"] = args.difficulty
+            elif args.terrain is not None:
+                target.pop("difficulty", None)
     terrain_course_configs(env_cfg.get("terrain"), curriculum_cfg)
     apply_randomization_arguments(env_cfg, obs_cfg, args)
     remaining_iterations = args.max_iterations
