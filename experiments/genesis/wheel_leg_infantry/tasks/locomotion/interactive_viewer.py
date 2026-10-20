@@ -1,5 +1,7 @@
 """Locomotion eval 的键盘控制和 Viewer 实时诊断组件。"""
 
+import time
+
 from genesis.ext.pyrender.constants import FONT_SIZE, TEXT_PADDING, TextAlign
 from genesis.vis.keybindings import Key, KeyAction, Keybind
 from genesis.vis.viewer_plugins import ViewerPlugin
@@ -16,10 +18,11 @@ class DiagnosticsOverlay(ViewerPlugin):
         super().__init__()
         self._lines = ()
 
-    def update(self, lines):
+    def update(self, lines, *, colors=None):
         # The simulation and viewer run in different threads. Replacing an
         # immutable tuple keeps the viewer from observing a partially updated list.
-        self._lines = tuple(lines)
+        colors = colors or {}
+        self._lines = tuple((line, colors.get(index)) for index, line in enumerate(lines))
 
     def on_draw(self):
         viewer = self.viewer
@@ -31,14 +34,14 @@ class DiagnosticsOverlay(ViewerPlugin):
         # Leave the first row free for Genesis' keyboard-help prompt.
         y = viewer._viewport_size[1] - TEXT_PADDING - int(FONT_SIZE * 1.2)
         line_height = int(self.font_size * 1.2)
-        for index, line in enumerate(lines):
+        for index, (line, color) in enumerate(lines):
             viewer._renderer.render_text(
                 line,
                 x,
                 y - index * line_height,
                 font_name="SpaceMono-Regular",
                 font_pt=self.font_size,
-                color=viewer._font_color,
+                color=viewer._font_color if color is None else color,
                 align=TextAlign.TOP_RIGHT,
             )
 
@@ -54,6 +57,8 @@ class KeyboardCommand:
         self.lin_step = 0.5
         self.ang_step = 0.5
         self.height_step = 0.05
+        self._last_slip_seen = [float("-inf"), float("-inf")]
+        self._last_slip_ratio = [1.0, 1.0]
 
         viewer = env.scene.viewer
         self.viewer = viewer
@@ -104,17 +109,52 @@ class KeyboardCommand:
         self.env.commands[:, 1] = self.ang_vel
         self.env.commands[:, 2] = self.height_target
 
+    def _wheel_slip_caption(self):
+        """显示实际施加的低摩擦事件；结束后保留两秒提示，避免短事件漏看。"""
+        slip = self.env.wheel_slip
+        if not slip.enabled:
+            return "wheel slip OFF | enable with --wheel-slip", None
+        diagnostics = slip.diagnostics()
+        if diagnostics["wheel_slip_episode_strength"].item() <= 0:
+            return "wheel slip OFF | episode strength=0", None
+
+        now = time.monotonic()
+        active = diagnostics["wheel_slip_active"].cpu().tolist()
+        ratios = diagnostics["wheel_slip_ratio"].cpu().tolist()
+        remaining = diagnostics["wheel_slip_steps_remaining"].cpu().tolist()
+        next_event = diagnostics["wheel_slip_steps_until_next"].cpu().tolist()
+        wheels = []
+        recent = False
+        for index, side in enumerate(("L", "R")):
+            if active[index]:
+                self._last_slip_seen[index] = now
+                self._last_slip_ratio[index] = ratios[index]
+                wheels.append(f"{side}=ACTIVE x{ratios[index]:.2f} {remaining[index] * self.env.dt:.2f}s")
+            elif now - self._last_slip_seen[index] < 2.0:
+                recent = True
+                wheels.append(f"{side}=ENDED (last x{self._last_slip_ratio[index]:.2f})")
+            else:
+                wheels.append(f"{side}=READY in {next_event[index] * self.env.dt:.1f}s")
+        color = (1.0, 0.25, 0.15, 1.0) if any(active) else ((1.0, 0.7, 0.15, 1.0) if recent else None)
+        return "wheel slip | " + "  ".join(wheels), color
+
     def update_caption(self):
         env = self.env
         obs = env.obs_buf[0]
         pd = env.get_pd_diagnostics()
         velocity = env.get_velocity_estimator_diagnostics()
+        slip_text, slip_color = self._wheel_slip_caption()
+        wheel_velocity = velocity["wheel_forward_velocity"].item()
+        true_velocity = velocity["true_forward_velocity"].item()
         terrain_type = env.terrain.tile_type(env.terrain_tile_index[0].item())
         text = (
             f"command  vx={self.lin_vel:+.2f} m/s  wz={self.ang_vel:+.2f} rad/s  " f"height={self.height_target:.3f} m",
             f"state    vx_true={env.base_lin_vel[0, 0].item():+.2f} m/s  "
             f"vx_est={velocity['estimated_forward_velocity'].item():+.2f} m/s  "
             f"wz={env.base_ang_vel[0, 2].item():+.2f} rad/s",
+            slip_text,
+            f"wheel vs true vx  {wheel_velocity:+.2f} / {true_velocity:+.2f} m/s  "
+            f"delta={wheel_velocity - true_velocity:+.2f} m/s",
             f"pose     z={env.base_pos[0, 2].item():.3f} m  ground={env.terrain_height[0].item():.3f} m  "
             f"height={env.base_height[0].item():.3f} m",
             f"terrain  preset={env.terrain.preset}  patch={terrain_type}  "
@@ -125,7 +165,7 @@ class KeyboardCommand:
             f"joint Kd       {format_tensor(pd['joint_kd'], precision=2)}",
             f"joint -Kd*qdot {format_tensor(pd['joint_kd_damping'], precision=2)}",
         )
-        self.diagnostics_overlay.update(text)
+        self.diagnostics_overlay.update(text, colors={2: slip_color})
 
 
 def format_tensor(tensor, precision=3):

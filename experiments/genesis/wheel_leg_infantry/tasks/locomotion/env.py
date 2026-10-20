@@ -20,11 +20,12 @@ from ...core.curriculum import CurriculumManager
 from ...core.dynamics_randomization import DynamicsRandomizationManager, MOTOR_NAMES, SPRING_NAMES
 from ...core.randomization_config import normalize_randomization_config
 from ...core.sensor_randomization import SensorRandomizationManager
+from ...core.wheel_slip import WheelSlipRandomizer
 from ...core.tof import GenesisToF, ToFHistory, ToFSamplingClock, resolve_tof_cfg
 from ...core.kinematics import compute_leg_angle, compute_leg_length, constrain_leg_targets
 from ...core.tensor_utils import as_gain_tensor, as_range_tensors, sample_uniform
-from ...terrains.manager import make_terrain
-from ...terrains.mixture import MixedTerrain
+from ...terrains.manager import TerrainManager
+from ...terrains.registry import TERRAIN_REGISTRY
 from ...terrains.curriculum import TerrainCourse, merge_terrain_config, terrain_course_configs
 from .rewards import LocomotionRewards
 from .tracking_gate import DEFAULT_TRACKING_GATE_CFG, merge_tracking_gate_config, smooth_gate
@@ -58,12 +59,13 @@ class LocomotionEnv(LocomotionRewards):
         self.env_cfg = env_cfg
         self.obs_cfg = obs_cfg
         self.reward_cfg = reward_cfg
+        self._init_terrain_reward_scales()
         self.command_cfg = command_cfg
         self.curriculum_cfg = {"enabled": False, "stages": []} if curriculum_cfg is None else curriculum_cfg
-        self.steps_per_iteration = int(steps_per_iteration) # PPO runner 每采满 steps_per_iteration 个控制步完成一轮
+        self.steps_per_iteration = int(steps_per_iteration)  # PPO runner 每采满 steps_per_iteration 个控制步完成一轮
         self.tracking_gate_cfg = {}
         self._apply_tracking_gate(reward_cfg.get("tracking_gate", DEFAULT_TRACKING_GATE_CFG))
-        self.terrain = make_terrain(env_cfg.get("terrain"))
+        self.terrain = TerrainManager(env_cfg.get("terrain"))
         # 记录 TerrainManager 补齐后的配置，保证课程、日志与运行状态一致。
         self.env_cfg["terrain"] = self.terrain.config
         self._terrain_base_config = deepcopy(self.terrain.config)
@@ -74,10 +76,9 @@ class LocomotionEnv(LocomotionRewards):
         self.domain_rand = DynamicsRandomizationManager(randomization["dynamics"])
         randomization["dynamics"] = self.domain_rand.config
         self.sensor_noise = SensorRandomizationManager(randomization["sensors"])
+        self.wheel_slip = WheelSlipRandomizer(randomization["wheel_slip"])
         self.batch_dofs_info = (
-            self.domain_rand.requires_batched_dofs
-            or bool(env_cfg.get("handoff_on_landing", False))
-            or self._requires_batched_motor_params()
+            self.domain_rand.requires_batched_dofs or bool(env_cfg.get("handoff_on_landing", False)) or self._requires_batched_motor_params()
         )
 
         # 观测、奖励和指令配置
@@ -145,15 +146,9 @@ class LocomotionEnv(LocomotionRewards):
         self.leg_rear_joint_indices = [joint_names.index(name) for name in rear_joint_names]
         self.leg_angle_lower, self.leg_angle_upper = map(float, leg_angle_limits)
         # motor 控制参数
-        self.joint_kp = as_gain_tensor(
-            self.env_cfg["joint_kp"], self.num_joints, "joint_kp", device=self.device
-        )
-        self.joint_kd = as_gain_tensor(
-            self.env_cfg["joint_kd"], self.num_joints, "joint_kd", device=self.device
-        )
-        self.wheel_kd = as_gain_tensor(
-            self.env_cfg["wheel_kd"], self.num_wheels, "wheel_kd", device=self.device
-        )
+        self.joint_kp = as_gain_tensor(self.env_cfg["joint_kp"], self.num_joints, "joint_kp", device=self.device)
+        self.joint_kd = as_gain_tensor(self.env_cfg["joint_kd"], self.num_joints, "joint_kd", device=self.device)
+        self.wheel_kd = as_gain_tensor(self.env_cfg["wheel_kd"], self.num_wheels, "wheel_kd", device=self.device)
         self.joint_force_limit = as_gain_tensor(
             self.env_cfg.get("joint_force_limit", 54.0),
             self.num_joints,
@@ -173,7 +168,7 @@ class LocomotionEnv(LocomotionRewards):
         self.max_motor_separation = math.pi - self.min_upper_link_angle
         half_separation = 0.5 * self.max_motor_separation
         self.max_leg_length = self.leg_upper_link_length * math.sin(half_separation) + math.sqrt(
-            max(self.leg_lower_link_length**2 - (self.leg_upper_link_length * math.cos(half_separation))**2, 0.0)
+            max(self.leg_lower_link_length**2 - (self.leg_upper_link_length * math.cos(half_separation)) ** 2, 0.0)
         )
         # 初始关节位置、腿长和腿角
         self.init_joint_pos = torch.tensor(
@@ -270,6 +265,8 @@ class LocomotionEnv(LocomotionRewards):
         self.curriculum.register_target("terrain", self._apply_terrain_curriculum)
         self.curriculum.register_target("domain_rand", self.domain_rand.apply_curriculum)
         self.curriculum.register_target("sensor_noise", self._apply_sensor_noise)
+        self.curriculum.register_target("wheel_slip", self.wheel_slip.apply_curriculum)
+        self._register_task_curriculum()
         if self.curriculum.update(0, force=True):
             print(f"[curriculum] stage={self.curriculum.current_stage_name} step=0")
 
@@ -337,9 +334,13 @@ class LocomotionEnv(LocomotionRewards):
         # tof
         self.tof = GenesisToF(self.scene, self.robot, self.tof_cfg, self.sensor_noise.config["tof"]) if self.tof_cfg["enabled"] else None
         self.tof_distances = torch.empty(
-            (num_envs, len(self.tof_cfg.get("sensors", ()))), dtype=gs.tc_float, device=self.device,
+            (num_envs, len(self.tof_cfg.get("sensors", ()))),
+            dtype=gs.tc_float,
+            device=self.device,
         )
         self.tof_history = ToFHistory(self.tof_distances, self.tof_cfg) if self.tof_cfg["include_in_observation"] else None
+        self.true_tof_distances = torch.empty_like(self.tof_distances)
+        self.true_tof_history = ToFHistory(self.true_tof_distances, self.tof_cfg) if self.tof_history is not None else None
 
         # build环境
         self.scene.build(n_envs=num_envs)
@@ -357,8 +358,7 @@ class LocomotionEnv(LocomotionRewards):
         self.wheels_dof_idx = self._joint_dof_indices(wheel_names)
         controlled_names = set((*joint_names, *wheel_names, *self.spring_names))
         self.passive_joint_names = tuple(
-            joint.name for joint in self.robot.joints
-            if joint.type == gs.JOINT_TYPE.REVOLUTE and joint.name not in controlled_names
+            joint.name for joint in self.robot.joints if joint.type == gs.JOINT_TYPE.REVOLUTE and joint.name not in controlled_names
         )
         self.passive_dof_idx = self._joint_dof_indices(self.passive_joint_names)
         self.wheel_links_idx = torch.tensor(
@@ -394,6 +394,13 @@ class LocomotionEnv(LocomotionRewards):
                 "left_wheel": self.robot.get_link(wheel_link_names[0]),
                 "right_wheel": self.robot.get_link(wheel_link_names[1]),
             },
+        )
+        self.wheel_slip.bind(
+            robot=self.robot,
+            wheel_links=[self.robot.get_link(name) for name in wheel_link_names],
+            terrain_entities=self.friction_terrain_entities,
+            baseline_ratio=self.domain_rand.friction_ratio,
+            dt=self.dt,
         )
         # 诊断参数与 manager 的实际参数共用 buffer，始终带并行环境维度。
         for name, value in self.domain_rand.motor_values.items():
@@ -450,15 +457,12 @@ class LocomotionEnv(LocomotionRewards):
         self.base_height = torch.empty_like(self.terrain_height)
         self.terrain_spawn_centers = torch.empty((self.num_envs, 2), dtype=gs.tc_float, device=gs.device)
         self.terrain_tile_index = torch.empty((self.num_envs,), dtype=torch.long, device=gs.device)
-        self._terrain_start_xy = torch.zeros((self.num_envs, 2), device=self.device)
-        self._terrain_episode_steps = torch.zeros(self.num_envs, device=self.device)
-        self._terrain_lin_error = torch.zeros(self.num_envs, device=self.device)
-        self._terrain_ang_error = torch.zeros(self.num_envs, device=self.device)
-        self._terrain_fallen = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
 
         # actor 可部署的 IMU/轮速观测，以及仅供诊断的速度估计量
         self.imu_lin_acc = torch.empty((self.num_envs, 3), dtype=gs.tc_float, device=gs.device)
         self.imu_ang_vel = torch.empty((self.num_envs, 3), dtype=gs.tc_float, device=gs.device)
+        self.true_imu_lin_acc = torch.empty_like(self.imu_lin_acc)
+        self.true_imu_ang_vel = torch.empty_like(self.imu_ang_vel)
         self.forward_kinematic_acc = torch.empty((self.num_envs,), dtype=gs.tc_float, device=gs.device)
         self.wheel_forward_vel = torch.empty((self.num_envs,), dtype=gs.tc_float, device=gs.device)
         self.estimated_base_lin_vel = torch.empty((self.num_envs,), dtype=gs.tc_float, device=gs.device)
@@ -557,12 +561,9 @@ class LocomotionEnv(LocomotionRewards):
     def _add_terrain(self):
         """在 scene.build 前创建配置指定的地形实体。"""
         self.terrain_entity = (
-            self.terrain_course.add_to_scene(self.scene) if self.terrain_course is not None
-            else self.terrain.add_to_scene(self.scene)
+            self.terrain_course.add_to_scene(self.scene) if self.terrain_course is not None else self.terrain.add_to_scene(self.scene)
         )
-        self.friction_terrain_entities = (
-            self.terrain_entity if isinstance(self.terrain_entity, tuple) else (self.terrain_entity,)
-        )
+        self.friction_terrain_entities = self.terrain_entity if isinstance(self.terrain_entity, tuple) else (self.terrain_entity,)
 
     def _requires_batched_motor_params(self):
         """任务可在场景构建前声明需要逐环境设置电机参数。"""
@@ -575,7 +576,6 @@ class LocomotionEnv(LocomotionRewards):
     def reset(self):
         """重置全部并行环境并返回重置后的 actor/critic 观测。"""
         self._activate_pending_terrain()
-        self._restore_terrain_state()
         self._reset_idx()
         self._update_observations()
         return self.get_observations()
@@ -603,6 +603,8 @@ class LocomotionEnv(LocomotionRewards):
             self.global_step += 1
 
         ########### 执行动作 ###########
+        # 接收下一拍动作时再推进历史；重复读取/组装观测不能改变两拍动作。
+        self.last_actions.copy_(self.actions)
         joint_actions = torch.clip(
             actions[:, : self.num_joints],
             -self.env_cfg["clip_joint_action"],
@@ -630,6 +632,7 @@ class LocomotionEnv(LocomotionRewards):
         self._apply_task_control()
         self._apply_gas_spring_compensation()
         self.domain_rand.before_step()
+        self.wheel_slip.before_step()
         self.scene.step()
 
         ########### 更新buffer ###########
@@ -662,6 +665,8 @@ class LocomotionEnv(LocomotionRewards):
                 self.tof_distances[due] = self.tof.read(env_ids=due, strength=self.sensor_noise.strength)
                 if self.tof_history is not None:
                     self.tof_history.append(self.tof_distances, due)
+                    self.true_tof_distances[due] = self.tof.read_ground_truth(env_ids=due)
+                    self.true_tof_history.append(self.true_tof_distances, due)
         self._update_velocity_estimator()
         self._update_wheel_contact()
 
@@ -681,29 +686,30 @@ class LocomotionEnv(LocomotionRewards):
         self._update_task_state()
 
         ########### 判断终止 ###########
-        roll_out = torch.abs(self.base_euler[:, 0]) > self.env_cfg["termination_if_roll_greater_than"]
-        pitch_out = torch.abs(self.base_euler[:, 1]) > self.env_cfg["termination_if_pitch_greater_than"]
-        tilt_out = roll_out | pitch_out
+        tilt_out = self._tilt_failure()
         self.tilt_out_steps.copy_(torch.where(tilt_out, self.tilt_out_steps + 1, 0))
-        self.base_contact_steps.copy_(torch.where(self.base_contact > 0.5, self.base_contact_steps + 1, 0))
+        self.base_contact_steps.copy_(torch.where(self._base_contact_failure(), self.base_contact_steps + 1, 0))
         persistent_tilt = self.tilt_out_steps >= self.tilt_termination_steps
         if self.base_contact_termination_steps is None:
             persistent_base_contact = torch.zeros_like(self.base_contact, dtype=torch.bool)
         else:
             persistent_base_contact = self.base_contact_steps >= self.base_contact_termination_steps
-        time_out = self.episode_length_buf > self.max_episode_length
+        time_out = self._episode_timeout()
         # patch 接缝不属于任何一种训练地形，接近边界时按 timeout 重置并允许 bootstrap。
         terrain_out = self.terrain.out_of_bounds(self.base_pos[:, :2], self.terrain_spawn_centers)
         if self.terrain_course is not None:
             # 课程地面是有限区域，即使 plane/关闭边界也不能驶入停放区。
-            margin = self.terrain.config["boundary_margin"] or min(.75, min(self.terrain.tile_size) / 4)
+            margin = self.terrain.config["boundary_margin"] or min(0.75, min(self.terrain.tile_size) / 4)
             extent = self.base_pos.new_tensor(self.terrain.tile_size) / 2 - margin
             terrain_out |= ((self.base_pos[:, :2] - self.terrain_spawn_centers).abs() >= extent).any(dim=-1)
         time_out = time_out | terrain_out
         solver_error = self.scene.rigid_solver.get_error_envs_mask().bool()
 
         self.terminated_buf = persistent_tilt | persistent_base_contact | solver_error | self._task_termination()
-        self.reset_buf = self.terminated_buf | time_out
+        # 成功是终局而非失败：不发 death，也不作为 time_out bootstrap。
+        task_success = self._task_success() & ~self.terminated_buf
+        time_out &= ~(task_success | self.terminated_buf)
+        self.reset_buf = self.terminated_buf | time_out | task_success
 
         ########### 计算奖励 ###########
         self.reward_buf.zero_()
@@ -724,7 +730,7 @@ class LocomotionEnv(LocomotionRewards):
         self._accumulate_task_metrics()
 
         # 在指令重采样和阶段强制截断前评估真实结束回合。
-        self._record_terrain_outcomes()
+        self._record_task_outcomes()
 
         ########### 重采样指令 ###########
         self._resample_commands(self.episode_length_buf % self.resample_step == 0)
@@ -743,9 +749,6 @@ class LocomotionEnv(LocomotionRewards):
 
         ########### 更新观测值 ###########
         self._update_observations()
-
-        ########### 更新旧值 ###########
-        self.last_actions.copy_(self.actions)
 
         return self.get_observations(), self.reward_buf, self.reset_buf, self.extras
 
@@ -802,6 +805,7 @@ class LocomotionEnv(LocomotionRewards):
         ) = self._sample_base_reset_state(reset_env_ids)
         self.terrain.reset(reset_env_ids)
         self.domain_rand.reset(reset_env_ids)
+        self.wheel_slip.reset(reset_env_ids)
 
         reset_quat_inv = inv_quat(reset_base_quat)
         reset_base_lin_vel_body = transform_by_quat(reset_base_lin_vel, reset_quat_inv)
@@ -837,6 +841,8 @@ class LocomotionEnv(LocomotionRewards):
             self.projected_gravity.copy_(reset_projected_gravity)
             self.imu_lin_acc.zero_()
             self.imu_ang_vel.copy_(reset_base_ang_vel_body)
+            self.true_imu_lin_acc.zero_()
+            self.true_imu_ang_vel.copy_(reset_base_ang_vel_body)
             self.forward_kinematic_acc.zero_()
             self.wheel_forward_vel.zero_()
             # 不把仿真真值泄漏给 IMU/轮速估计器；真机 reset 时也不知道绝对线速度。
@@ -885,6 +891,8 @@ class LocomotionEnv(LocomotionRewards):
             torch.where(env_idx[:, None], self.init_joint_pos, self.joint_pos, out=self.joint_pos)
             self.imu_lin_acc.masked_fill_(env_idx[:, None], 0.0)
             self.imu_ang_vel[env_idx] = reset_base_ang_vel_body
+            self.true_imu_lin_acc.masked_fill_(env_idx[:, None], 0.0)
+            self.true_imu_ang_vel[env_idx] = reset_base_ang_vel_body
             self.forward_kinematic_acc.masked_fill_(env_idx, 0.0)
             self.wheel_forward_vel.masked_fill_(env_idx, 0.0)
             self.estimated_base_lin_vel.masked_fill_(env_idx, 0.0)
@@ -909,21 +917,20 @@ class LocomotionEnv(LocomotionRewards):
             self.target_wheel_vel.masked_fill_(env_idx[:, None], 0.0)
             self.episode_length_buf.masked_fill_(env_idx, 0)
 
-        self._terrain_start_xy[reset_env_ids] = reset_base_pos[:, :2]
-        self._terrain_episode_steps[reset_env_ids] = 0
-        self._terrain_lin_error[reset_env_ids] = 0
-        self._terrain_ang_error[reset_env_ids] = 0
-        self._terrain_fallen[reset_env_ids] = False
         self._update_encoder_measurements(reset_env_ids)
         self._reset_task_buffers(env_idx)
         if self.tof is not None:
             self.tof.reset(reset_env_ids, strength=self.sensor_noise.strength)
             self.tof_distances[reset_env_ids] = self.tof.read(
-                after_reset=True, env_ids=reset_env_ids, strength=self.sensor_noise.strength,
+                after_reset=True,
+                env_ids=reset_env_ids,
+                strength=self.sensor_noise.strength,
             )
             self.tof_clock.reset(reset_env_ids)
             if self.tof_history is not None:
                 self.tof_history.reset(self.tof_distances, reset_env_ids)
+                self.true_tof_distances[reset_env_ids] = self.tof.read_ground_truth(after_reset=True, env_ids=reset_env_ids)
+                self.true_tof_history.reset(self.true_tof_distances, reset_env_ids)
 
         # 更新extras和episoded的reward
         if env_idx is not None and env_idx.any():
@@ -939,8 +946,6 @@ class LocomotionEnv(LocomotionRewards):
             if self.curriculum.enabled:
                 self.extras["episode"]["curriculum_stage"] = torch.full_like(self.reward_buf[env_idx], float(self.curriculum.current_stage_index))
             self.extras["episode"]["episode_duration_s"] = finished_episode_lengths * self.dt
-            if isinstance(self.terrain, MixedTerrain):
-                self.extras["episode"].update(self.terrain.metrics())
         else:
             # 没有 episode 结束，就不要让 logger 收到虚假的零
             self.extras.pop("episode", None)
@@ -1014,30 +1019,32 @@ class LocomotionEnv(LocomotionRewards):
 
     def _resample_commands(self, envs_idx):
         """为全部环境采样指令，仅将选中行写回；None 表示全部写回。"""
-        commands = sample_uniform(*self.commands_limit, (self.num_envs,))
-        high_speed_cfg = self.command_cfg.get("high_speed_ang_vel")
+        commands = self._sample_commands(self.command_cfg, self.commands_limit)
+        if envs_idx is None:
+            self.commands.copy_(commands)
+        else:
+            torch.where(envs_idx[:, None], commands, self.commands, out=self.commands)
+
+    def _sample_commands(self, command_cfg, limits):
+        """按给定配置采样，不写回，供混合任务各自使用命令分布。"""
+        commands = sample_uniform(*limits, (self.num_envs,))
+        high_speed_cfg = command_cfg.get("high_speed_ang_vel")
         if high_speed_cfg is not None:
             # 按 |vx| 分档，在收紧后的范围内均匀采样，避免截断造成边界堆积。
-            lower, upper = self.commands_limit
+            lower, upper = limits
             limit = high_speed_cfg["max_abs_ang_vel"]
-            high_speed_ang_vel = sample_uniform(
-                lower[1].clamp(min=-limit), upper[1].clamp(max=limit), (self.num_envs,)
-            )
+            high_speed_ang_vel = sample_uniform(lower[1].clamp(min=-limit), upper[1].clamp(max=limit), (self.num_envs,))
             commands[:, 1] = torch.where(
                 commands[:, 0].abs() > high_speed_cfg["lin_vel_threshold"],
                 high_speed_ang_vel,
                 commands[:, 1],
             )
-        standing_probability = self.command_cfg.get("standing_probability", 0.0)
+        standing_probability = command_cfg.get("standing_probability", 0.0)
         if standing_probability > 0.0:
             # 静止样本只清零 vx、wz，仍跟踪当前课程采样的机身高度。
             standing = torch.rand_like(commands[:, 0]) < standing_probability
             commands[:, :2].masked_fill_(standing[:, None], 0.0)
-        if envs_idx is None:
-            self.commands.copy_(commands)
-        else:
-            torch.where(envs_idx[:, None], commands, self.commands, out=self.commands)
-        return
+        return commands
 
     # ============ 控制与状态更新：控制发生在 scene.step 前，状态更新发生在其后 ============
     def _apply_gas_spring_compensation(self):
@@ -1065,11 +1072,16 @@ class LocomotionEnv(LocomotionRewards):
         selected = slice(None) if reset_env_ids is None else reset_env_ids
         measured_pos = self.measured_joint_pos[selected]
         self.measured_leg_length[selected] = compute_leg_length(
-            measured_pos, self.leg_front_joint_indices, self.leg_rear_joint_indices,
-            self.leg_upper_link_length, self.leg_lower_link_length,
+            measured_pos,
+            self.leg_front_joint_indices,
+            self.leg_rear_joint_indices,
+            self.leg_upper_link_length,
+            self.leg_lower_link_length,
         )
         self.measured_leg_angle[selected] = compute_leg_angle(
-            measured_pos, self.leg_front_joint_indices, self.leg_rear_joint_indices,
+            measured_pos,
+            self.leg_front_joint_indices,
+            self.leg_rear_joint_indices,
         )
 
     def _update_velocity_estimator(self):
@@ -1085,6 +1097,9 @@ class LocomotionEnv(LocomotionRewards):
         imu_data = self.imu.read()
         self.imu_lin_acc.copy_(imu_data.lin_acc)
         self.imu_ang_vel.copy_(imu_data.ang_vel)
+        imu_truth = self.imu.read_ground_truth()
+        self.true_imu_lin_acc.copy_(imu_truth.lin_acc)
+        self.true_imu_ang_vel.copy_(imu_truth.ang_vel)
         self.forward_kinematic_acc.copy_(
             gravity_compensated_forward_acceleration(
                 self.imu_lin_acc,
@@ -1163,27 +1178,36 @@ class LocomotionEnv(LocomotionRewards):
             "imu_ang_vel": self.imu_ang_vel * self.obs_scales["ang_vel"],  # 3
             "imu_lin_acc": self.imu_lin_acc * self.imu_acc_scale,  # 3，IMU 比力（含重力）
             "projected_gravity": self.projected_gravity,  # 3
-            **self._get_command_observation_components(),
             "joint_pos_offset": (self.measured_joint_pos - self.default_joint_pos) * self.obs_scales["joint_pos"],
             "joint_vel": self.measured_joint_vel * self.obs_scales["joint_vel"],
             "wheel_vel": self.measured_wheel_vel * self.obs_scales["wheel_vel"],
             "leg_length": self.measured_leg_length * self.obs_scales["leg_length"],  # 2
             "leg_angle": self.measured_leg_angle * self.obs_scales["leg_angle"],  # 2
             "actions": self.actions,
+            "last_actions": self.last_actions,  # 6，与 actions 同顺序的前一拍裁剪动作
+            **self._get_command_observation_components(),
             **({"tof_distance": self.tof_history.observation()} if self.tof_cfg["include_in_observation"] else {}),
             **self._get_task_observation_components(),
         }
         self.obs_buf = torch.concatenate(tuple(self.obs_components.values()), dim=-1)
         self.critic_obs_components = {
-            # critic 继承 actor 的完整观测，其中已经包含三轴 imu_lin_acc；
-            # 下方只追加训练时可用、部署时不可直接获得的仿真特权信息。
+            # 保持 actor 的通道顺序和缩放，但将所有传感器测量替换为无噪声真值。
             **self.obs_components,
-            "privileged_base_lin_vel": self.base_lin_vel * self.obs_scales["lin_vel"],  # 3
-            "privileged_base_ang_vel": self.base_ang_vel * self.obs_scales["ang_vel"],  # 3
+            "imu_ang_vel": self.true_imu_ang_vel * self.obs_scales["ang_vel"],
+            "imu_lin_acc": self.true_imu_lin_acc * self.imu_acc_scale,
+            "joint_pos_offset": (self.joint_pos - self.default_joint_pos) * self.obs_scales["joint_pos"],
+            "joint_vel": self.joint_vel * self.obs_scales["joint_vel"],
+            "wheel_vel": self.wheel_vel * self.obs_scales["wheel_vel"],
+            "leg_length": self.leg_length * self.obs_scales["leg_length"],
+            "leg_angle": self.leg_angle * self.obs_scales["leg_angle"],
+            **({"tof_distance": self.true_tof_history.observation()} if self.tof_cfg["include_in_observation"] else {}),
+            "privileged_base_lin_vel": self.base_lin_vel * self.obs_scales["lin_vel"] ,  # 3
             # 仿真接触真值只提供给 critic，actor/实机接口不依赖它。
             "privileged_wheel_contact": self.wheel_contact,  # 2: left, right
+            "privileged_wheel_slip": self.wheel_slip.active.to(dtype=self.obs_buf.dtype), # 2: left, right
             "privileged_base_contact": self.base_contact.unsqueeze(-1),  # 1
             **self._get_landing_privileged_observation_components(),
+            # 旧配置缺少此开关时保留原维度；事件状态与本步使用的摩擦同步。
             **self._get_task_privileged_observation_components(),
         }
         self.critic_obs_buf = torch.concatenate(tuple(self.critic_obs_components.values()), dim=-1)
@@ -1198,12 +1222,13 @@ class LocomotionEnv(LocomotionRewards):
             device=self.device,
         )
 
-    def _build_command_limits(self):
+    def _build_command_limits(self, command_cfg=None):
         """构造 [vx, wz, base_height] 的采样上下限。"""
-        standing_probability = float(self.command_cfg.get("standing_probability", 0.0))
+        command_cfg = self.command_cfg if command_cfg is None else command_cfg
+        standing_probability = float(command_cfg.get("standing_probability", 0.0))
         if not math.isfinite(standing_probability) or not 0.0 <= standing_probability <= 1.0:
             raise ValueError("standing_probability must be finite and in [0, 1]")
-        high_speed_cfg = self.command_cfg.get("high_speed_ang_vel")
+        high_speed_cfg = command_cfg.get("high_speed_ang_vel")
         if high_speed_cfg is not None:
             threshold = float(high_speed_cfg["lin_vel_threshold"])
             limit = float(high_speed_cfg["max_abs_ang_vel"])
@@ -1211,15 +1236,15 @@ class LocomotionEnv(LocomotionRewards):
                 raise ValueError("high_speed_ang_vel.lin_vel_threshold must be finite and nonnegative")
             if not math.isfinite(limit) or limit < 0.0:
                 raise ValueError("high_speed_ang_vel.max_abs_ang_vel must be finite and nonnegative")
-            lower, upper = self.command_cfg["ang_vel_range"]
+            lower, upper = command_cfg["ang_vel_range"]
             if max(lower, -limit) > min(upper, limit):
                 raise ValueError("ang_vel_range must overlap the high-speed angular velocity limits")
         return tuple(
             torch.tensor(items, dtype=gs.tc_float, device=gs.device)
             for items in zip(
-                self.command_cfg["lin_vel_range"],
-                self.command_cfg["ang_vel_range"],
-                self.command_cfg["base_height_range"],
+                command_cfg["lin_vel_range"],
+                command_cfg["ang_vel_range"],
+                command_cfg["base_height_range"],
             )
         )
 
@@ -1244,7 +1269,35 @@ class LocomotionEnv(LocomotionRewards):
         self.commands_limit = self._build_command_limits()
 
     def _get_reward_scale(self, name):
+        if not getattr(self, "terrain_reward_scales", None):
+            return self.reward_scales[name]
+        overrides = self.terrain_reward_scales.get(self.terrain.preset, {})
+        if name in overrides:
+            return overrides[name] * (1.0 if name == "death" else self.dt)
         return self.reward_scales[name]
+
+    def _init_terrain_reward_scales(self):
+        """地形覆盖为绝对权重；未覆盖项沿用全局（含课程更新）权重。"""
+        overrides = self.reward_cfg.get("terrain_reward_scales", {})
+        if not isinstance(overrides, dict):
+            raise ValueError("terrain_reward_scales must be a mapping of terrain presets to reward scales")
+        normalized = {}
+        for preset, values in overrides.items():
+            if preset not in TERRAIN_REGISTRY:
+                raise ValueError(f"Unsupported reward terrain preset: {preset!r}")
+            if not isinstance(values, dict):
+                raise ValueError(f"terrain_reward_scales.{preset} must be a mapping")
+            normalized[preset] = {}
+            for name, value in values.items():
+                if name not in self.reward_cfg["reward_scales"]:
+                    raise ValueError(f"terrain_reward_scales.{preset}.{name} requires a default in reward_scales")
+                if not callable(getattr(self, "_reward_" + name, None)):
+                    raise ValueError(f"Unknown terrain reward: {name!r}")
+                scale = float(value)
+                if not math.isfinite(scale):
+                    raise ValueError(f"terrain_reward_scales.{preset}.{name} must be finite")
+                normalized[preset][name] = scale
+        self.terrain_reward_scales = normalized
 
     def _apply_reward_scales(self, values):
         """应用原始奖励权重；除死亡奖励外，运行时权重统一乘以 dt。"""
@@ -1353,48 +1406,6 @@ class LocomotionEnv(LocomotionRewards):
             # 同步运行时配置，便于日志和调试输出反映当前课程阶段。
             self.env_cfg[name] = [list(axis_limits) for axis_limits in limits]
 
-    def _record_terrain_outcomes(self):
-        if not isinstance(self.terrain, MixedTerrain):
-            return
-        options = self.terrain.config["adaptive"]
-        self._terrain_episode_steps += 1
-        self._terrain_lin_error += (self.base_lin_vel[:, 0] - self.commands[:, 0]).square()
-        self._terrain_ang_error += (self.base_ang_vel[:, 2] - self.commands[:, 1]).square()
-        self._terrain_fallen |= (self.base_euler[:, :2].abs() > options["max_tilt_deg"]).any(dim=-1) | (self.base_contact > .5)
-        # 切换课程而截断的回合不计入成功率；正常失败仍是失败样本。
-        if self._pending_terrain_index is not None:
-            return
-        ids = self.reset_buf.nonzero(as_tuple=False).flatten()
-        if ids.numel() == 0:
-            return
-        steps = self._terrain_episode_steps[ids].clamp_min(1)
-        distance = (self.base_pos[ids, :2] - self._terrain_start_xy[ids]).norm(dim=-1)
-        success = (
-            ~self.terminated_buf[ids] & ~self._terrain_fallen[ids]
-            & (steps * self.dt >= options["min_duration_s"])
-            & (distance >= options["min_distance"])
-            & (self._terrain_lin_error[ids] / steps <= options["max_lin_vel_rmse"] ** 2)
-            & (self._terrain_ang_error[ids] / steps <= options["max_ang_vel_rmse"] ** 2)
-        )
-        self.terrain.record(ids, self.terrain_tile_index[ids], success)
-
-    def terrain_state_dict(self):
-        terrains = self.terrain_course.terrains if self.terrain_course else [self.terrain]
-        return [{"config": deepcopy(t.config), "state": t.controller.state_dict()}
-                for t in terrains if isinstance(t, MixedTerrain)]
-
-    def _restore_terrain_state(self):
-        saved = getattr(self, "_pending_terrain_state", None)
-        if saved is None:
-            return
-        terrains = self.terrain_course.terrains if self.terrain_course else [self.terrain]
-        for record in saved:
-            matches = [t for t in terrains if isinstance(t, MixedTerrain) and t.config == record["config"]]
-            if not matches:
-                raise ValueError("saved terrain curriculum does not match; use --load-weights for a new terrain course")
-            matches[0].controller.load_state_dict(record["state"])
-        self._pending_terrain_state = None
-
     def _apply_terrain_curriculum(self, values):
         """初始化时应用几何；运行时排队到本控制步结束后切换。"""
         if not set(values).difference({"max_difficulty"}):
@@ -1405,7 +1416,7 @@ class LocomotionEnv(LocomotionRewards):
                 if config != self.terrain.config:
                     raise ValueError("Terrain changes must be declared in curriculum stages before scene construction")
                 return
-            self.terrain = make_terrain(config)
+            self.terrain = TerrainManager(config)
             self.env_cfg["terrain"] = self.terrain.config
             return
         try:
@@ -1479,6 +1490,27 @@ class LocomotionEnv(LocomotionRewards):
             trackball._n_target = lookat.copy()
 
     # ============ 子任务扩展点：由 jump 等子类覆盖；调用位置由 step / reset 固定 ============
+    def _register_task_curriculum(self):
+        """在第 0 阶段应用前注册任务课程。"""
+
+    def _base_contact_failure(self):
+        """子任务可豁免合法的机身支撑接触。"""
+        return self.base_contact > 0.5
+
+    def _tilt_failure(self):
+        return (self.base_euler[:, 0].abs() > self.env_cfg["termination_if_roll_greater_than"]) | (
+            self.base_euler[:, 1].abs() > self.env_cfg["termination_if_pitch_greater_than"]
+        )
+
+    def _episode_timeout(self):
+        return self.episode_length_buf > self.max_episode_length
+
+    def _task_success(self):
+        return torch.zeros_like(self.episode_length_buf, dtype=torch.bool)
+
+    def _record_task_outcomes(self):
+        """任务可在回合结束、指令重采样前统计结果。"""
+
     def _initialize_task_buffers(self):
         """任务扩展点：在首次 reset 前分配额外 buffer。"""
 
@@ -1493,7 +1525,7 @@ class LocomotionEnv(LocomotionRewards):
         """任务扩展点：物理状态与接触更新后、奖励计算前更新任务状态。"""
 
     def _task_termination(self):
-        """任务扩展点：额外终止条件 """
+        """任务扩展点：额外终止条件"""
         return torch.zeros_like(self.episode_length_buf, dtype=torch.bool)
 
     def _reset_task_buffers(self, env_idx):

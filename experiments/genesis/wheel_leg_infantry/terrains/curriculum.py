@@ -1,14 +1,15 @@
-"""预构建课程地形；在回合边界整体切换实体和解析几何。"""
+"""按训练阶段合并配置、预构建和切换单一地形。"""
 
 from copy import deepcopy
 
 from .config import default_terrain_cfg, resolve_terrain_cfg
-from .manager import make_terrain
+from .manager import TerrainManager
+from .scene import OffsetScene
 
 
 def merge_terrain_config(base, values):
     """课程使用与 env_cfg.terrain 相同的字段，子地形参数逐项继承。"""
-    unknown = set(values).difference({*default_terrain_cfg(), "max_difficulty", "difficulty", "mixture", "adaptive", "level_catalog"})
+    unknown = set(values).difference({*default_terrain_cfg(), "max_difficulty", "difficulty", "level_catalog"})
     if unknown:
         raise KeyError(f"Unsupported terrain curriculum keys: {sorted(unknown)}")
     config = deepcopy(base)
@@ -24,8 +25,6 @@ def merge_terrain_config(base, values):
                 if unknown_parameters:
                     raise KeyError(f"Unsupported {preset} parameters: {sorted(unknown_parameters)}")
                 parameters.setdefault(preset, {}).update(deepcopy(overrides))
-        elif name == "adaptive":
-            config.setdefault(name, {}).update(deepcopy(value))
         else:
             config[name] = deepcopy(value)
     return resolve_terrain_cfg(config)
@@ -40,7 +39,7 @@ def terrain_course_configs(base, curriculum):
         configs.append(current)
     for stage in stages:
         current = merge_terrain_config(current, stage.get("targets", {}).get("terrain", {}))
-        make_terrain(current)  # 启动时验证所有阶段尺寸，避免训练到中途才失败。
+        TerrainManager(current)  # 启动时验证所有阶段尺寸，避免训练到中途才失败。
         if current not in configs:
             configs.append(current)
     return configs
@@ -50,7 +49,7 @@ class TerrainCourse:
     """复用固定形状实体；未选地形停放在训练区域之外，不在运行期缩放网格。"""
 
     def __init__(self, configs):
-        self.terrains = [make_terrain(config) for config in configs]
+        self.terrains = [TerrainManager(config) for config in configs]
         self.entities = []
         self.home_positions = []
         self.active_index = None
@@ -63,24 +62,8 @@ class TerrainCourse:
         return next(i for i, terrain in enumerate(self.terrains) if terrain.config == config)
 
     def add_to_scene(self, scene):
-        import genesis as gs
-
-        class FiniteGroundScene:
-            def __init__(self, terrain):
-                self.terrain = terrain
-
-            def add_entity(self, morph, **kwargs):
-                if isinstance(morph, gs.morphs.Plane):
-                    length, width = self.terrain.tile_size
-                    morph = gs.morphs.Box(
-                        lower=(-length / 2, -width / 2, -.1),
-                        upper=(length / 2, width / 2, 0.),
-                        fixed=True, batch_fixed_verts=False,
-                    )
-                return scene.add_entity(morph, **kwargs)
-
         for terrain in self.terrains:
-            entities = terrain.add_to_scene(FiniteGroundScene(terrain))
+            entities = terrain.add_to_scene(OffsetScene(scene, (0., 0., 0.), terrain.tile_size))
             self.entities.append(entities if isinstance(entities, tuple) else (entities,))
         return tuple(entity for group in self.entities for entity in group)
 

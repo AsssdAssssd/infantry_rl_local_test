@@ -14,9 +14,12 @@ Genesis 训练、评估与 MuJoCo locomotion 使用同一套 ToF 配置。
 - `min_range_m` / `max_range_m`：有效量程，默认 `[0, 1.2)` m。
 - 每个 sensor 的 `reference_distance_m` 决定归一化：`clamp(distance / reference, 0, 1)`。
 - `history_frames`：每个传感器保存的帧数，包含当前帧，按传感器分组、组内从旧到新排列。
-  输入维度为 `32 + 传感器数 × history_frames`，不受随机化影响。
+  输入维度为 `38 + 传感器数 × history_frames`，不受随机化影响；前 38 维包含两拍动作历史。
 - `update_hz`：测距更新频率，默认 50 Hz，不能高于控制频率。
   非测距步保持当前读数与历史；reset 的首帧填满该环境的历史。
+
+Actor 使用带随机化的测距历史；critic 使用标称安装位姿的独立无噪声历史，绕过安装误差、
+测距偏置和白噪声。两份历史同步采样，局部 reset 只重置对应环境，重复组装观测不推进历史。
 
 ## 安装外侧余量
 

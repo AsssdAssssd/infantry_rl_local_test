@@ -1,4 +1,4 @@
-"""三个训练阶段共用的机器人、动作和观测配置，以及命令合并工具。
+"""Locomotion 及其派生任务共用的机器人、动作、观测配置和命令合并工具。
 
 每次调用返回新的字典；奖励、命令、课程和任务覆盖项由各阶段独立维护。
 """
@@ -81,12 +81,14 @@ def get_env_cfg() -> dict:
 
 def get_obs_cfg() -> dict:
     return {
+        "critic_wheel_slip": True,  # 左右轮打滑事件标志，打滑为 1，否则为 0。
         # actor 使用 IMU、轮速等真机观测
         "imu": {
             "link_name": "base_link",
             "pos_offset": [0.0, 0.0, 0.0],
         },
-        # True: (32 + 4 * history_frames)D actor；False: 32D actor，供 jump warmup。
+        # actions / last_actions 各 6D，整块并列，位于 ToF 前。
+        # True: (38 + 4 * history_frames)D actor；False: 38D actor，供 jump warmup。
         "tof": default_tof_cfg(
             include_in_observation=True,
             history_frames=3,

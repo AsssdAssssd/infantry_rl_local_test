@@ -2,11 +2,11 @@
 
 from copy import deepcopy
 
-from . import plane, stairs, platform_ridge, trapezoidal_wave, square_wave, random_rough
+from . import plane, stairs, stairs_up, platform_ridge_down, platform_ridge_up, trapezoidal_wave, square_wave, slope_up, slope_down
 
 TERRAIN_REGISTRY = {
     module.PRESET: module
-    for module in (plane, stairs, platform_ridge, trapezoidal_wave, square_wave, random_rough)
+    for module in (plane, stairs, platform_ridge_down, platform_ridge_up, trapezoidal_wave, square_wave, stairs_up, slope_up, slope_down)
 }
 
 

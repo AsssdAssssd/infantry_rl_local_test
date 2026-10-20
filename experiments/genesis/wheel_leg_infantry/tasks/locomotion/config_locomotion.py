@@ -89,6 +89,7 @@ def _curriculum_cfg() -> dict:
                 "targets": {
                     "domain_rand": {"strength": 0.0},
                     "sensor_noise": {"strength": 0.0},
+                    "wheel_slip": {"strength": 0.0},
                     "reset_ranges": {
                         "base_init_pos_range": [[0.0, 0.0], [0.0, 0.0], [0.22, 0.22]],
                         "base_init_rpy_offset_range_deg": [[0.0, 0.0], [0.0, 0.0], [0.0, 0.0]],
@@ -102,8 +103,8 @@ def _curriculum_cfg() -> dict:
                         "base_height_range": [0.22, 0.22],
                     },
                     "termination_limits": {
-                        "termination_if_roll_greater_than": 20.0,
-                        "termination_if_pitch_greater_than": 20.0,
+                        "termination_if_roll_greater_than": 10.0,
+                        "termination_if_pitch_greater_than": 10.0,
                         "tilt_termination_duration_s": 0.30,
                         "base_contact_termination_duration_s": 0.25,
                     },
@@ -116,6 +117,7 @@ def _curriculum_cfg() -> dict:
                     "standing_reward": {"tracking_sigma": 0.10},
                     "domain_rand": {"strength": 0.0},
                     "sensor_noise": {"strength": 0.0},
+                    "wheel_slip": {"strength": 0.0},
                     "reset_ranges": {
                         "base_init_pos_range": [[0.0, 0.0], [0.0, 0.0], [0.22, 0.22]],
                         "base_init_rpy_offset_range_deg": [[0.0, 0.0], [0.0, 0.0], [0.0, 0.0]],
@@ -126,21 +128,22 @@ def _curriculum_cfg() -> dict:
                         "standing_probability": 0.1,
                         "lin_vel_range": [-1.0, 1.0],
                         "ang_vel_range": [-2.0, 2.0],
-                        "base_height_range": [0.20, 0.30],
+                        "base_height_range": [0.20, 0.32],
                     },
                     "tracking_gate": {
                         "height_full_error": 0.03,
-                        "height_zero_error": 0.09,
+                        "height_zero_error": 0.06,
                         "attitude_full_angle_deg": 1.0,
                         "attitude_zero_angle_deg": 4.0,
-                        "floor": 0.10,
+                        "floor": 0.05,
                     },
                     "reward_scales": {
                         "standing_drift": -1.0,
                         "tracking_lin_vel": -2.0,
                         "tracking_ang_vel": -3.0,
+                        "height_gate": 10.0,
                         "leg_symmetry": -10.0,
-                        "base_balance": -10.0,
+                        "base_balance": -20.0,
                     },
                 },
             },
@@ -151,6 +154,7 @@ def _curriculum_cfg() -> dict:
                     "standing_reward": {"tracking_sigma": 0.05},
                     "domain_rand": {"strength": 0.0},
                     "sensor_noise": {"strength": 0.0},
+                    "wheel_slip": {"strength": 0.0},
                     "reset_ranges": {
                         "base_init_pos_range": [[0.0, 0.0], [0.0, 0.0], [0.22, 0.22]],
                         "base_init_rpy_offset_range_deg": [[0.0, 0.0], [0.0, 0.0], [0.0, 0.0]],
@@ -188,6 +192,7 @@ def _curriculum_cfg() -> dict:
                     "standing_reward": {"tracking_sigma": 0.02},
                     "domain_rand": {"strength": 0.4},
                     "sensor_noise": {"strength": 0.4},
+                    "wheel_slip": {"strength": 0.4},
                     "reset_ranges": {
                         "base_init_pos_range": [[0.0, 0.0], [0.0, 0.0], [0.22, 0.24]],
                         "base_init_rpy_offset_range_deg": [[0.0, 0.0], [0.0, 0.0], [0.0, 0.0]],
@@ -221,6 +226,7 @@ def _curriculum_cfg() -> dict:
                 "targets": {
                     "domain_rand": {"strength": 1.0},
                     "sensor_noise": {"strength": 1.0},
+                    "wheel_slip": {"strength": 1.0},
                     "reset_ranges": {
                         "base_init_pos_range": [[0.0, 0.0], [0.0, 0.0], [0.22, 0.24]],
                         "base_init_rpy_offset_range_deg": [[0.0, 0.0], [0.0, 0.0], [0.0, 0.0]],
@@ -229,7 +235,7 @@ def _curriculum_cfg() -> dict:
                     },
                     "command_ranges": {
                         "standing_probability": 0.25,
-                        "lin_vel_range": [-3.7, 3.7],
+                        "lin_vel_range": [-3.5, 3.5],
                         "ang_vel_range": [-6.0, 6.0],
                         "base_height_range": [0.20, 0.36],
                     },

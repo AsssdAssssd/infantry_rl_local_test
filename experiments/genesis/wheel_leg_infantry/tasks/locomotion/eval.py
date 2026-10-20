@@ -1,4 +1,4 @@
-"""Locomotion checkpoint 的交互式可视化评估。"""
+"""Locomotion / multi_terrain checkpoint 的交互式可视化评估。"""
 
 import argparse
 from copy import deepcopy
@@ -17,6 +17,7 @@ from ...tools.run_utils import (
 )
 from .config_common import get_final_command_cfg
 from .env import LocomotionEnv
+from .train import validate_locomotion_config
 from .interactive_viewer import KeyboardCommand, format_tensor
 
 
@@ -25,7 +26,7 @@ def _parse_args(argv=None):
     """解析并校验评估命令行参数。"""
     parser = argparse.ArgumentParser()
     add_randomization_arguments(parser, evaluation=True)
-    parser.add_argument("-e", "--exp_name", type=str, default="infantry_locomotion_v3")
+    parser.add_argument("-e", "--exp_name", type=str, default="locomotion_v5")
     parser.add_argument("--log-root", type=str, default="logs")
     parser.add_argument("--version", type=str, default=None, help="version_0003 or 3; default: latest valid run")
     parser.add_argument("--ckpt", type=int, default=None, help="checkpoint number; default: latest in selected run")
@@ -73,6 +74,28 @@ def _apply_terrain_overrides(env_cfg, args):
         env_cfg["terrain"] = resolve_terrain_cfg(env_cfg["terrain"])
 
 
+def _prepare_task_configs(configs):
+    """从保存快照提取交互评估配置，多地形策略使用 locomotion 子任务。"""
+    env_cfg = deepcopy(configs["env_cfg"])
+    curriculum_cfg = configs["curriculum_cfg"]
+    if "multi_terrain" in env_cfg:
+        tasks = env_cfg.pop("multi_terrain")["tasks"]
+        if "locomotion" not in tasks:
+            raise ValueError("locomotion eval requires a saved multi_terrain locomotion task")
+        task = tasks["locomotion"]
+        env_cfg["terrain"] = task["terrain"]
+        env_cfg.update(task.get("termination", {}))
+        env_cfg["resampling_time_s"] = task["resampling_time_s"]
+        command_cfg = deepcopy(task["commands"])
+        if curriculum_cfg.get("enabled", False):
+            for stage in curriculum_cfg.get("stages", []):
+                command_cfg.update(deepcopy(stage.get("targets", {}).get("task_command_ranges", {}).get("locomotion", {})))
+    else:
+        command_cfg = get_final_command_cfg(configs["command_cfg"], curriculum_cfg)
+    validate_locomotion_config(env_cfg, curriculum_cfg)
+    return env_cfg, command_cfg
+
+
 def print_evaluation_diagnostics(env, step):
     """按观测分组打印策略输入，并输出关节与轮子的 PD/Kd 诊断。"""
     print(
@@ -102,6 +125,10 @@ def print_evaluation_diagnostics(env, step):
     print(f"  randomization strength   target={randomization['domain_rand_strength']:.2f}, "
           f"episode={randomization['domain_rand_episode_strength'].item():.2f}")
     print(f"  friction ratio           {randomization['friction_ratio'].item():.3f}")
+    slip = env.wheel_slip.diagnostics()
+    print(f"  wheel slip L/R           active={slip['wheel_slip_active'].tolist()}, "
+          f"ratio={format_tensor(slip['wheel_slip_ratio'])}, "
+          f"strength={slip['wheel_slip_episode_strength'].item():.2f}")
     print(f"  added base mass          {randomization['added_mass_kg'].item():+.3f} kg")
     print(f"  COM displacement         {format_tensor(randomization['com_displacement_m'])} m")
     print(f"  motor strength           {randomization['motor_strength'].item():.3f}")
@@ -142,15 +169,15 @@ def main():
     )
     checkpoint_path = resolve_checkpoint(run_dir, args.ckpt)
     configs = load_run_configs(run_dir)
-    env_cfg = deepcopy(configs["env_cfg"])
+    env_cfg, command_cfg = _prepare_task_configs(configs)
     _apply_terrain_overrides(env_cfg, args)
     obs_cfg = deepcopy(configs["obs_cfg"])
     apply_randomization_arguments(env_cfg, obs_cfg, args)
     prepare_tof_for_viewer(obs_cfg)
     reward_cfg = deepcopy(configs["reward_cfg"])
-    command_cfg = get_final_command_cfg(configs["command_cfg"], configs["curriculum_cfg"])
     train_cfg = configs["train_cfg"]
     reward_cfg["reward_scales"] = {}
+    reward_cfg["terrain_reward_scales"] = {}
 
     print(f"[eval] run:        {run_dir}")
     print(f"[eval] checkpoint: {checkpoint_path}")
@@ -179,7 +206,11 @@ def main():
     )
 
     runner = OnPolicyRunner(env, train_cfg, str(run_dir), device=gs.device)
-    runner.load(str(checkpoint_path), map_location=gs.device)
+    runner.load(
+        str(checkpoint_path),
+        load_cfg={"actor": True, "critic": False, "optimizer": False, "iteration": False, "rnd": False},
+        map_location=gs.device,
+    )
     policy = runner.get_inference_policy(device=gs.device)
 
     obs_dict = env.reset()

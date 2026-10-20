@@ -211,8 +211,8 @@ def _get_obs_cfg(locomotion_obs_cfg: Mapping):
     # 保留 locomotion 前缀和缩放；jump 的第三项为按时间变化的目标 base 到轮底距离。
     obs_cfg["locomotion_policy_obs_dim"] = layout_dim(LOCOMOTION_POLICY_LAYOUT)
     obs_cfg["num_policy_obs"] = layout_dim(JUMP_POLICY_LAYOUT)
-    # critic 追加基础真值 9D、落地状态 1D、jump 真值 7D、距离/落稳进度 2D。
-    obs_cfg["num_critic_obs"] = obs_cfg["num_policy_obs"] + 19
+    # critic 追加基础真值 9D、落地状态 1D、jump 真值 7D、距离/落稳进度 2D，以及可选打滑 2D。
+    obs_cfg["num_critic_obs"] = obs_cfg["num_policy_obs"] + 19 + 2 * bool(obs_cfg.get("critic_wheel_slip", False))
     return obs_cfg
 
 
@@ -450,5 +450,6 @@ def validate_configs(env_cfg, obs_cfg, curriculum_cfg=None):
     expected_policy = layout_dim(JUMP_POLICY_LAYOUT)
     if resolve_tof_cfg(obs_cfg.get("tof"))["include_in_observation"]:
         raise ValueError("jump does not support ToF observations; set tof.include_in_observation=False")
-    if obs_cfg["num_policy_obs"] != expected_policy or obs_cfg["num_critic_obs"] != expected_policy + 19:
+    expected_critic = expected_policy + 19 + 2 * bool(obs_cfg.get("critic_wheel_slip", False))
+    if obs_cfg["num_policy_obs"] != expected_policy or obs_cfg["num_critic_obs"] != expected_critic:
         raise ValueError("jump_modes observation dimensions must include 3D mode and 2D privileged state")

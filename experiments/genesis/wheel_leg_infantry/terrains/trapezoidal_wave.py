@@ -9,13 +9,14 @@ from .base import TerrainGeometry
 
 PRESET = "trapezoidal_wave"
 PARAMETER_KEY = "trapezoidal_wave"
-PARAMETERS = dict(height=0.20, platform_length=1.50, slope_angle_deg=23.0, base_thickness=0.10)
+PARAMETERS = dict(height=0.25, platform_length=1.50, slope_angle_deg=23.0, base_thickness=0.10)
 LEVELS = {
-    0: dict(height=0.04, slope_angle_deg=5.0),
-    1: dict(height=0.08, slope_angle_deg=10.0),
-    2: dict(height=0.12, slope_angle_deg=15.0),
-    3: dict(height=0.16, slope_angle_deg=20.0),
-    4: dict(height=0.20, slope_angle_deg=23.0),
+    0: dict(slope_angle_deg=5.0),
+    1: dict(slope_angle_deg=10.0),
+    2: dict(slope_angle_deg=15.0),
+    3: dict(slope_angle_deg=20.0),
+    4: dict(slope_angle_deg=23.0),
+    5: dict(slope_angle_deg=25.0),
 }
 
 
