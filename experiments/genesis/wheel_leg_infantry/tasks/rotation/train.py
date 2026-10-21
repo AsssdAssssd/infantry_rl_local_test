@@ -34,18 +34,20 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("-v", "--vis", action="store_true", default=False)
     parser.add_argument("-e", "--exp_name", type=str, default="rotation")
-    parser.add_argument("-B", "--num_envs", type=int, default=8192)
+    parser.add_argument("-B", "--num_envs", type=int, default=8196)
     parser.add_argument("--max_iterations", type=int, default=15000)
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--terrain", choices=TERRAIN_PRESETS, default=None)
     parser.add_argument("--difficulty", type=int, default=None,
                         help="terrain level for --terrain (see terrains/<preset>.py LEVELS)")
-    parser.add_argument("--terrain-curriculum", choices=("slope_up", "slope_down"), default=None,
+    parser.add_argument("--terrain-curriculum", choices=("slope_up", "slope_down", "tilted_plane"), default=None,
                         help="rotation-local slope curriculum; keeps the implementation inside tasks/rotation")
     parser.add_argument("--terrain-schedule", type=str, default=None,
                         help="start:difficulty,... for --terrain-curriculum (default: 7000:0,10000:2,13500:4)")
     parser.add_argument("--log-root", type=str, default="logs")
     parser.add_argument("--load-weights", type=Path, default=None)
+    parser.add_argument("--load-actor-only", action="store_true",
+                        help="with --load-weights, skip critic when its observation dimension changed")
     parser.add_argument("--warm-start", type=Path, default=None,
                         help="locomotion model_*.pt; cfgs.pkl must be in the same directory; actor only")
     add_randomization_arguments(parser, evaluation=False)
@@ -98,15 +100,24 @@ def main():
             curriculum_cfg = deepcopy(saved_configs["curriculum_cfg"])
             train_cfg = deepcopy(saved_configs["train_cfg"])
 
+    # 单地形参数优先：显式指定 --terrain / --difficulty / --terrain-curriculum 时关闭配置里的混合地形。
+    if args.terrain is not None or args.difficulty is not None or args.terrain_curriculum is not None:
+        env_cfg.pop("terrain_weights", None)
+        env_cfg.pop("terrain_variants", None)
+        for stage in curriculum_cfg.get("stages", []):
+            targets = stage.get("targets", {})
+            targets.pop("terrain_weights", None)
+            targets.pop("terrain_variants", None)
+
     if args.terrain_curriculum is not None:
         from .terrain_curriculum import (
-            DEFAULT_SLOPE_SCHEDULE,
+            DEFAULT_TERRAIN_SCHEDULES,
             merge_curriculum_stages,
             parse_schedule,
             slope_schedule_stages,
         )
 
-        schedule = DEFAULT_SLOPE_SCHEDULE if args.terrain_schedule is None else parse_schedule(args.terrain_schedule)
+        schedule = DEFAULT_TERRAIN_SCHEDULES[args.terrain_curriculum] if args.terrain_schedule is None else parse_schedule(args.terrain_schedule)
         curriculum_cfg = merge_curriculum_stages(
             curriculum_cfg, slope_schedule_stages(args.terrain_curriculum, schedule)
         )
@@ -187,12 +198,12 @@ def main():
     elif args.load_weights is not None:
         runner.load(
             str(args.load_weights),
-            load_cfg={"actor": True, "critic": True, "optimizer": False, "iteration": False, "rnd": False},
+            load_cfg={"actor": True, "critic": not args.load_actor_only, "optimizer": False, "iteration": False, "rnd": False},
             strict=True,
             map_location=gs.device,
         )
         runner.current_learning_iteration = 0
-        print(f"[rotate] loaded actor/critic weights from: {args.load_weights}")
+        print(f"[rotate] loaded actor weights from: {args.load_weights}" + (" (critic fresh)" if args.load_actor_only else " (critic loaded)"))
     runner.learn(num_learning_iterations=remaining_iterations, init_at_random_ep_len=True)
 
 

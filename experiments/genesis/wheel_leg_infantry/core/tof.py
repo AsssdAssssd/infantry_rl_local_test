@@ -70,10 +70,13 @@ def resolve_tof_cfg(value):
     for sensor in sensors:
         pos = np.asarray(sensor.get("pos_offset"), dtype=float)
         angle = sensor.get("downward_angle_deg")
+        yaw_angle = sensor.get("yaw_angle",0.0)
         if pos.shape != (3,) or not np.isfinite(pos).all():
             raise ValueError(f"{sensor['name']}.pos_offset must contain three finite coordinates in meters")
         if not isinstance(angle, (int, float)) or not math.isfinite(angle) or not 0 < angle <= 90:
             raise ValueError(f"{sensor['name']}.downward_angle_deg must be in (0, 90]")
+        if not isinstance(yaw_angle, (int, float)) or not math.isfinite(yaw_angle) or not -180 < yaw_angle <= 180:
+            raise ValueError(f"{sensor['name']}.yaw_angle must be in (-180, 180]")
         # 旧存档没有独立参考距离，沿用按量程缩放的策略输入。
         reference = sensor.setdefault("reference_distance_m", hi)
         if (isinstance(reference, bool) or not isinstance(reference, (int, float))
@@ -83,14 +86,25 @@ def resolve_tof_cfg(value):
 
 
 def tof_direction(sensor):
-    angle = math.radians(sensor["downward_angle_deg"])
-    return (math.cos(angle), 0.0, -math.sin(angle))
+    pitch = math.radians(sensor["downward_angle_deg"])
+    yaw = math.radians(sensor.get("yaw_angle",0.0))
+    return (math.cos(pitch)*math.cos(yaw), math.cos(pitch)*math.sin(yaw), -math.sin(pitch))
 
 
 def tof_site_quat(sensor):
-    # MuJoCo site 的 +Z 轴为光轴，绕 +Y 转 90° + 俯角。
-    half_angle = math.radians(90.0 + sensor["downward_angle_deg"]) / 2
-    return (math.cos(half_angle), 0.0, math.sin(half_angle), 0.0)
+    # MuJoCo site 的 +Z 轴为光轴：先绕 Z 转 yaw，再绕 Y 转 90° + 俯角。
+    yaw = math.radians(sensor.get("yaw_angle", 0.0))
+    pitch = math.radians(90.0 + sensor["downward_angle_deg"])
+    qy = (math.cos(yaw / 2), 0.0, 0.0, math.sin(yaw / 2))
+    qp = (math.cos(pitch / 2), 0.0, math.sin(pitch / 2), 0.0)
+    w1, x1, y1, z1 = qy
+    w2, x2, y2, z2 = qp
+    return (
+        w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2,
+        w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2,
+        w1 * y2 - x1 * z2 + y1 * w2 + z1 * x2,
+        w1 * z2 + x1 * y2 - y1 * x2 + z1 * w2,
+    )
 
 
 def tof_observation(distances, cfg):

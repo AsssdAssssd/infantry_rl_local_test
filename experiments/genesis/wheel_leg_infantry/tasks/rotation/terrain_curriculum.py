@@ -19,6 +19,18 @@ DEFAULT_SLOPE_SCHEDULE: tuple[tuple[int, int], ...] = (
     (13500, 4),
 )
 
+DEFAULT_TILT_SCHEDULE: tuple[tuple[int, int], ...] = (
+    (7000, 0),
+    (10000, 1),
+    (13500, 2),
+)
+
+DEFAULT_TERRAIN_SCHEDULES = {
+    "slope_up": DEFAULT_SLOPE_SCHEDULE,
+    "slope_down": DEFAULT_SLOPE_SCHEDULE,
+    "tilted_plane": DEFAULT_TILT_SCHEDULE,
+}
+
 
 def terrain_stage(name: str, start_iteration: int, preset: str, difficulty: int) -> dict:
     """构造一个只覆盖 ``terrain`` 目标的课程阶段。"""
@@ -36,13 +48,15 @@ def terrain_stage(name: str, start_iteration: int, preset: str, difficulty: int)
 
 def slope_schedule_stages(
     preset: str,
-    schedule: tuple[tuple[int, int], ...] | list[tuple[int, int]] = DEFAULT_SLOPE_SCHEDULE,
+    schedule: tuple[tuple[int, int], ...] | list[tuple[int, int]] | None = None,
     *,
     prefix: str | None = None,
 ) -> list[dict]:
     """按 ``(start_iteration, difficulty)`` 生成坡地课程阶段。"""
-    if preset not in ("slope_up", "slope_down"):
-        raise ValueError("preset must be 'slope_up' or 'slope_down'")
+    if preset not in DEFAULT_TERRAIN_SCHEDULES:
+        raise ValueError(f"preset must be one of {sorted(DEFAULT_TERRAIN_SCHEDULES)}")
+    if schedule is None:
+        schedule = DEFAULT_TERRAIN_SCHEDULES[preset]
     prefix = prefix or f"terrain_{preset}"
     stages = []
     previous = -1

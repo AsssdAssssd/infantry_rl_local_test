@@ -65,7 +65,7 @@ class LocomotionEnv(LocomotionRewards):
         self.steps_per_iteration = int(steps_per_iteration)  # PPO runner 每采满 steps_per_iteration 个控制步完成一轮
         self.tracking_gate_cfg = {}
         self._apply_tracking_gate(reward_cfg.get("tracking_gate", DEFAULT_TRACKING_GATE_CFG))
-        self.terrain = TerrainManager(env_cfg.get("terrain"))
+        self.terrain = self._make_terrain(env_cfg, num_envs)
         # 记录 TerrainManager 补齐后的配置，保证课程、日志与运行状态一致。
         self.env_cfg["terrain"] = self.terrain.config
         self._terrain_base_config = deepcopy(self.terrain.config)
@@ -271,7 +271,7 @@ class LocomotionEnv(LocomotionRewards):
             print(f"[curriculum] stage={self.curriculum.current_stage_name} step=0")
 
         # JumpEnv 有独立地形课程；仅 locomotion 使用这里的地形集合。
-        if type(self)._add_terrain is LocomotionEnv._add_terrain:
+        if type(self)._add_terrain is LocomotionEnv._add_terrain and getattr(self.terrain, "supports_course", True):
             configs = terrain_course_configs(self._terrain_base_config, self.curriculum_cfg)
             if len(configs) > 1:
                 self.terrain_course = TerrainCourse(configs)
@@ -557,6 +557,10 @@ class LocomotionEnv(LocomotionRewards):
             dtype=gs.tc_int,
             device=self.device,
         )
+
+    def _make_terrain(self, env_cfg, num_envs):
+        """地形工厂；子类可覆盖以使用多地形混合等实现。"""
+        return TerrainManager(env_cfg.get("terrain"))
 
     def _add_terrain(self):
         """在 scene.build 前创建配置指定的地形实体。"""

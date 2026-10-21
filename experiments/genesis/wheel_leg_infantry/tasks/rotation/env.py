@@ -15,6 +15,7 @@ import torch
 
 from ..locomotion.env import LocomotionEnv
 from .rewards import RotateRewards
+from .terrain import RotationTerrain
 
 
 
@@ -67,6 +68,37 @@ class RotateEnv(RotateRewards, LocomotionEnv):
         self.robot.set_dofs_kp(kp.tolist(), self.gimbal_dof_idx)
         self.robot.set_dofs_kv(kd.tolist(), self.gimbal_dof_idx)
         self.robot.set_dofs_force_range([-8.0, -8.0], [8.0, 8.0], self.gimbal_dof_idx)
+
+    # ============ 地形：rotation 自己的多地形混合 ============
+
+    def _make_terrain(self, env_cfg, num_envs):
+        weights = env_cfg.get("terrain_weights")
+        variants = env_cfg.get("terrain_variants")
+        if weights and variants:
+            raise ValueError("configure either terrain_weights or terrain_variants, not both")
+        if weights or variants:
+            return RotationTerrain(weights or variants, base=env_cfg.get("terrain"), num_envs=num_envs)
+        return super()._make_terrain(env_cfg, num_envs)
+
+    def _register_task_curriculum(self):
+        super()._register_task_curriculum()
+        self.curriculum.register_target("terrain_weights", self._apply_terrain_weights)
+
+    def _apply_terrain_weights(self, values):
+        """混合地形只改权重；各环境在下一次 reset 时切换到新分配。"""
+        if not isinstance(self.terrain, RotationTerrain):
+            raise ValueError("terrain_weights requires terrain_weights or terrain_variants in env_cfg")
+        self.terrain.set_weights(values)
+
+    def _apply_terrain_curriculum(self, values):
+        if isinstance(self.terrain, RotationTerrain):
+            raise ValueError("terrain curriculum cannot be combined with terrain_weights")
+        super()._apply_terrain_curriculum(values)
+
+    def _activate_pending_terrain(self):
+        if isinstance(self.terrain, RotationTerrain):
+            return False
+        return super()._activate_pending_terrain()
 
     # ============ 命令管道：五维命令，方向以 sin/cos 单独提供给 actor ============
 
@@ -156,6 +188,8 @@ class RotateEnv(RotateRewards, LocomotionEnv):
         super()._resample_commands(envs_idx)
         if envs_idx is not None and not torch.any(envs_idx):
             return
+        if isinstance(self.terrain, RotationTerrain):
+            self._resample_mixed_base_height(envs_idx)
         selected = slice(None) if envs_idx is None else envs_idx
         position = self.base_pos[selected, :2]
         self.translation_path_origin[selected] = position
@@ -168,6 +202,28 @@ class RotateEnv(RotateRewards, LocomotionEnv):
         self.translation_path_cross_track[selected] = 0.0
         self.translation_window_forward_speed[selected] = 0.0
         self.translation_window_lateral_speed[selected] = 0.0
+
+    def _resample_mixed_base_height(self, envs_idx):
+        """按 env 当前地形重采样 base_height，避免生成腿长做不到的指令。
+
+        ang/lin 仍用全局 ranges；这里只处理第 2 维 base_height。
+        优先使用「全局范围 ∩ 地形可行范围」；若课程固定 0.22 而坡面需要
+        0.25，交集为空，则退回该地形自身的可行范围。
+        """
+        selected = slice(None) if envs_idx is None else envs_idx
+        tiles = self.terrain_tile_index[selected]
+        variant_low, variant_high = self.terrain.base_height_bounds(tiles)
+        global_low = self.commands_limit[0][2]
+        global_high = self.commands_limit[1][2]
+        low = torch.maximum(variant_low, global_low)
+        high = torch.minimum(variant_high, global_high)
+        fallback = low > high
+        if fallback.any():
+            low = torch.where(fallback, variant_low, low)
+            high = torch.where(fallback, variant_high, high)
+        if (low > high).any():
+            raise ValueError("no feasible base_height command for some terrain variants")
+        self.commands[selected, 2] = low + (high - low) * torch.rand_like(low)
 
     def _update_translation_metrics(self):
         """Update rolling displacement velocity and command-segment path error."""

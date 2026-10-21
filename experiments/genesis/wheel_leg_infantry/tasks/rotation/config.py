@@ -10,9 +10,17 @@ import os
 from copy import deepcopy
 
 from ..locomotion.config_locomotion import get_cfgs as get_locomotion_cfgs
+from .tof_config import apply_rotation_tof
 
 GIMBAL_YAW_JOINT = "gimbal_yaw_joint"
 GIMBAL_PITCH_JOINT="gimbal_pitch_joint"
+
+# 简写：preset -> 每个难度等级的权重（列表下标即 difficulty）。
+# 当前 task 数 = 1；以后要加“上下/斜小陀螺”时改用 terrain_variants 列表并填写 task。
+DEFAULT_TERRAIN_WEIGHTS = {
+    "plane": [0.3],
+    "tilted_plane": [0.3, 0.3, 0.2, 0.0, 0.0, 0.0],
+}
 
 
 def get_cfgs(locomotion_cfgs=None):
@@ -22,6 +30,7 @@ def get_cfgs(locomotion_cfgs=None):
 
     env_cfg = deepcopy(locomotion_cfgs[0])
     obs_cfg = deepcopy(locomotion_cfgs[1])
+    apply_rotation_tof(obs_cfg) 
     reward_cfg = deepcopy(locomotion_cfgs[2])
     command_cfg = deepcopy(locomotion_cfgs[3])
     # curriculum_cfg = deepcopy(locomotion_cfgs[4])
@@ -67,6 +76,9 @@ def get_cfgs(locomotion_cfgs=None):
     command_cfg["base_height_range"] = [0.22, 0.22]
     command_cfg["standing_probability"] = 1.0
 
+    # 初始权重；课程第 0 阶段会再次覆盖。单地形 --terrain 会在 train.py 中移除它。
+    env_cfg["terrain_weights"] = deepcopy(DEFAULT_TERRAIN_WEIGHTS)
+
     # ---------- 消融开关：ROTATE_ABLATION=1 时，只换机器人，奖励/课程全用 main 的 ----------
     if os.environ.get("ROTATE_ABLATION"):
         return env_cfg, obs_cfg, reward_cfg, command_cfg, deepcopy(locomotion_cfgs[4])
@@ -91,7 +103,7 @@ def get_cfgs(locomotion_cfgs=None):
     reward_cfg["reward_scales"]["base_balance"] = -20.0
     # 腿长不对称：允许死区内自由（高速自旋+平移需要），超过 deadband 才线性惩罚，防止"伸一条腿"太离谱
     reward_cfg["leg_length_symmetry_deadband"] = 0.02
-    reward_cfg["reward_scales"]["leg_length_symmetry"] = -5.0
+    reward_cfg["reward_scales"]["leg_length_symmetry"] = -0.0
 
     # ---------- 课程：每阶段补上云台命令范围与奖励权重；默认锁 0 ----------
     #TODO 我认为还是覆盖一个比较好，课程差异还是比较大的
@@ -117,8 +129,13 @@ def _curriculum_cfg() -> dict:
                 "name": "stand",
                 "start_iteration": 0,
                 "targets": {
+                    "wheel_slip": {"strength": 0.2},
                     "domain_rand": {"strength": 0.0},
                     "sensor_noise": {"strength": 0.0},
+                    "terrain_weights":{
+                        "plane": [0.2],
+                        "tilted_plane": [0.3, 0.3, 0.2, 0.2, 0.1, 0.1],#有些角度，0.22高度不一定能满足，所以先太高，2是做范围限制重采样
+                    },
                     "reset_ranges": {
                         "base_init_pos_range": [[0.0, 0.0], [0.0, 0.0], [0.22, 0.22]],
                         "base_init_rpy_offset_range_deg": [[0.0, 0.0], [0.0, 0.0], [0.0, 0.0]],
@@ -129,7 +146,7 @@ def _curriculum_cfg() -> dict:
                         "standing_probability": 1.0,
                         "lin_vel_range": [0.0, 0.0],
                         "ang_vel_range": [0.0, 0.0],
-                        "base_height_range": [0.22, 0.22],
+                        "base_height_range": [0.28, 0.28],
                         "gimbal_yaw_vel_range": [-0.0, 0.0],
                     },
                     "termination_limits": {
@@ -138,6 +155,9 @@ def _curriculum_cfg() -> dict:
                         "tilt_termination_duration_s": 0.30,
                         "base_contact_termination_duration_s": 0.25,
                     },
+                    "reward_scales":{ 
+                        "leg_symmetry": 0.0,
+                                   },
                 },
             },
             # ---------- 第一阶段：只学自旋，lin_vel 锁 0，转速从 ±3 逐步升到 ±10 ----------
@@ -145,6 +165,7 @@ def _curriculum_cfg() -> dict:
                 "name": "rotation_slow",
                 "start_iteration": 1500,
                 "targets": {
+                    "wheel_slip": {"strength": 0.3},
                     "standing_reward": {"tracking_sigma": 0.10},
                     "domain_rand": {"strength": 0.0},
                     "sensor_noise": {"strength": 0.0},
@@ -174,7 +195,6 @@ def _curriculum_cfg() -> dict:
                         # "tracking_lin_vel": -2.0,
                         "tracking_ang_vel": -2.0,
                         "gimbal_spin_track_lin_vel_yaw_frame": 6.0,
-                        "leg_symmetry": -10.0,
                         "base_balance": -20.0,
                         # "gimbal_yaw_ang": -10.0,
                     },
@@ -187,6 +207,10 @@ def _curriculum_cfg() -> dict:
                     "standing_reward": {"tracking_sigma": 0.05},
                     "domain_rand": {"strength": 0.0},
                     "sensor_noise": {"strength": 0.0},
+                    "terrain_weights":{
+                        "plane": [0.2],
+                        "tilted_plane": [0.2, 0.2, 0.2, 0.2, 0.1, 0.1],
+                    },
                     "reset_ranges": {
                         "base_init_pos_range": [[0.0, 0.0], [0.0, 0.0], [0.22, 0.22]],
                         "base_init_rpy_offset_range_deg": [[0.0, 0.0], [0.0, 0.0], [0.0, 0.0]],
@@ -228,8 +252,13 @@ def _curriculum_cfg() -> dict:
                 "name": "rotation_fast",
                 "start_iteration": 7000,
                 "targets": {
+                    "wheel_slip": {"strength": 0.4},
                     "standing_reward": {"tracking_sigma": 0.02},
                     "domain_rand": {"strength": 0.0},
+                    "terrain_weights":{
+                        "plane": [0.2],
+                        "tilted_plane": [0.1, 0.15, 0.15, 0.2, 0.2, 0.15],
+                    },
                     "sensor_noise": {"strength": 0.0},
                     "reset_ranges": {
                         "base_init_pos_range": [[0.0, 0.0], [0.0, 0.0], [0.22, 0.22]],
