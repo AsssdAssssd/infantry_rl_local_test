@@ -30,12 +30,14 @@ class TiltedPlane(TerrainGeometry):
     SPAWN_CLEARANCE_M = 0.03
     SPAWN_FOOTPRINT_HALF_X = 0.30
     SPAWN_FOOTPRINT_HALF_Y = 0.25
+    MIN_BASE_THICKNESS_M = 0.50
 
     def __init__(self, parameters, tile_size, horizontal_scale=0.1, *, boundary_margin=None):
         super().__init__(parameters, tile_size, horizontal_scale, boundary_margin=boundary_margin)
         self.slope_angle_deg = float(parameters["slope_angle_deg"])
         self.direction_deg = float(parameters.get("direction_deg", 0.0))
-        self.base_thickness = float(parameters["base_thickness"])
+        # 至少 0.5m 厚，避免高坡/落地冲击把轮子打穿薄板。
+        self.base_thickness = max(float(parameters["base_thickness"]), self.MIN_BASE_THICKNESS_M)
         self.spawn_clearance_m = float(parameters.get("spawn_clearance_m", self.SPAWN_CLEARANCE_M))
         self.spawn_half_x = float(parameters.get("spawn_footprint_half_x", self.SPAWN_FOOTPRINT_HALF_X))
         self.spawn_half_y = float(parameters.get("spawn_footprint_half_y", self.SPAWN_FOOTPRINT_HALF_Y))
