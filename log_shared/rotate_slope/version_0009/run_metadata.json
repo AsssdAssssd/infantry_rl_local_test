@@ -1,16 +1,17 @@
 {
-  "created_at": "2026-10-21T15:43:41+00:00",
-  "run_dir": "/home/zhongrui/infantry_rl_local_test/logs/rotation_tilt/version_0007",
+  "created_at": "2026-10-24T02:51:54+00:00",
+  "run_dir": "/home/zhongrui/infantry_rl_local_test/logs/rotation_slope/version_0009",
   "arguments": {
     "vis": false,
-    "exp_name": "rotation_tilt",
-    "num_envs": 8196,
+    "exp_name": "rotation_slope",
+    "num_envs": 2048,
     "max_iterations": 15000,
     "seed": 1,
     "terrain": null,
     "difficulty": null,
     "terrain_curriculum": null,
     "terrain_schedule": null,
+    "direct_slope": true,
     "log_root": "logs",
     "load_weights": null,
     "load_actor_only": false,
@@ -18,21 +19,20 @@
     "domain_rand": null,
     "sensor_noise": null,
     "wheel_slip": null,
-    "resume": "0006",
-    "checkpoint": 500,
+    "resume": "version_0008",
+    "checkpoint": 1800,
     "resume_config": "saved",
-    "resume_from": "/home/zhongrui/infantry_rl_local_test/logs/rotation_tilt/version_0006/model_500.pt"
+    "resume_from": "/home/zhongrui/infantry_rl_local_test/logs/rotation_slope/version_0008/model_1800.pt"
   },
   "command": [
     "/home/zhongrui/infantry_rl_local_test/experiments/genesis/wheel_leg_infantry/tasks/rotation/train.py",
     "-e",
-    "rotation_tilt",
-    "--log-root",
-    "logs",
+    "rotation_slope",
     "--resume",
-    "0006",
+    "version_0008",
     "--checkpoint",
-    "500"
+    "1800",
+    "--direct-slope"
   ],
   "python": "3.13.16 (main, Oct  9 2026, 15:23:36) [Clang 22.1.3 ]",
   "platform": "Linux-6.8.0-147-generic-x86_64-with-glibc2.39",
@@ -41,6 +41,6 @@
     "rsl-rl-lib": "5.4.2",
     "torch": "2.13.0+cu126"
   },
-  "git_commit": "99c82eb3d626e2cf278310a07ef209ad6a60634c",
-  "git_dirty": false
+  "git_commit": "10b5e687aa26417e936466e5d05807a8092e5174",
+  "git_dirty": true
 }

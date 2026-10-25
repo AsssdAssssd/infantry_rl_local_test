@@ -24,7 +24,7 @@ from ...tools.run_utils import (
     save_run_artifacts,
     skip_duplicate_process_group_init,
 )
-from .config import get_cfgs
+from .config import DIRECT_SLOPE_TERRAIN_WEIGHTS, direct_slope_curriculum_cfg, get_cfgs
 from .env import RotateEnv
 from .warm_start import validate_source, warm_start_actor
 from ...terrains.registry import level_catalog
@@ -34,7 +34,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("-v", "--vis", action="store_true", default=False)
     parser.add_argument("-e", "--exp_name", type=str, default="rotation")
-    parser.add_argument("-B", "--num_envs", type=int, default=8196)
+    parser.add_argument("-B", "--num_envs", type=int, default=2048)
     parser.add_argument("--max_iterations", type=int, default=15000)
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--terrain", choices=TERRAIN_PRESETS, default=None)
@@ -44,6 +44,8 @@ def main():
                         help="rotation-local slope curriculum; keeps the implementation inside tasks/rotation")
     parser.add_argument("--terrain-schedule", type=str, default=None,
                         help="start:difficulty,... for --terrain-curriculum (default: 7000:0,10000:2,13500:4)")
+    parser.add_argument("--direct-slope", action="store_true",
+                        help="skip stand/rotation curriculum; train vx+wz directly on existing slope_up/slope_down")
     parser.add_argument("--log-root", type=str, default="logs")
     parser.add_argument("--load-weights", type=Path, default=None)
     parser.add_argument("--load-actor-only", action="store_true",
@@ -77,6 +79,8 @@ def main():
         parser.error("--terrain-schedule requires --terrain-curriculum")
     if args.difficulty is not None and args.difficulty < 0:
         parser.error("--difficulty must be non-negative")
+    if args.direct_slope and (args.terrain is not None or args.difficulty is not None or args.terrain_curriculum is not None):
+        parser.error("--direct-slope cannot be combined with --terrain/--difficulty/--terrain-curriculum")
 
     dist_info = init_distributed()
     if dist_info["is_distributed"]:
@@ -99,6 +103,12 @@ def main():
             command_cfg = deepcopy(saved_configs["command_cfg"])
             curriculum_cfg = deepcopy(saved_configs["curriculum_cfg"])
             train_cfg = deepcopy(saved_configs["train_cfg"])
+
+    if args.direct_slope:
+        # 直接练“平移小陀螺过坡”：只用现有 slope_up/slope_down，跳过早先的 stand/rotation 课程。
+        env_cfg["terrain_weights"] = deepcopy(DIRECT_SLOPE_TERRAIN_WEIGHTS)
+        env_cfg.pop("terrain_variants", None)
+        curriculum_cfg = direct_slope_curriculum_cfg()
 
     # 单地形参数优先：显式指定 --terrain / --difficulty / --terrain-curriculum 时关闭配置里的混合地形。
     if args.terrain is not None or args.difficulty is not None or args.terrain_curriculum is not None:

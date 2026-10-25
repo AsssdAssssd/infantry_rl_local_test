@@ -100,7 +100,7 @@ def get_cfgs(locomotion_cfgs=None):
     # 高度误差已改为 L1（见 rewards.py），这里把权重也加大，逼它先站起来
     reward_cfg["reward_scales"]["base_height"] = -40.0
     # 倾斜惩罚改线性（见 rewards.py），压住"歪着站/蹬一条腿"
-    reward_cfg["reward_scales"]["base_balance"] = -20.0
+    reward_cfg["reward_scales"]["base_balance"] = -10.0
     # 腿长不对称：允许死区内自由（高速自旋+平移需要），超过 deadband 才线性惩罚，防止"伸一条腿"太离谱
     reward_cfg["leg_length_symmetry_deadband"] = 0.02
     reward_cfg["reward_scales"]["leg_length_symmetry"] = -0.0
@@ -404,5 +404,201 @@ def _curriculum_cfg() -> dict:
                     
                 },
             },
+        ],
+    }
+
+
+# 直接进入“平移小陀螺过坡”的 ablation：只用现有 slope_up/slope_down 地形。
+# 出生在 slope 的平 approach/top，自带方向，不会生在 ramp 上。
+DIRECT_SLOPE_TERRAIN_WEIGHTS = {
+    "plane": [0.30],
+    "slope_up": [0.35, 0.35, 0.1, 0.1, 0.0],
+    "slope_down": [0.35, 0.35, 0.1, 0.1, 0.0],
+}
+
+
+def direct_slope_curriculum_cfg() -> dict:
+    """跳过 stand/rotation 课程，直接练 vx + wz 过 10° 上/下坡。"""
+    return {
+        "enabled": True,
+        "stages": [
+            {
+                "name": "direct_slope",
+                "start_iteration": 0,
+                "targets": {
+                    "terrain_weights": deepcopy(DIRECT_SLOPE_TERRAIN_WEIGHTS),
+                    "wheel_slip": {"strength": 0.2},
+                    "standing_reward": {"tracking_sigma": 0.02},
+                    "domain_rand": {"strength": 0.1},
+                    "sensor_noise": {"strength": 0.1},
+                    "reset_ranges": {
+                        "base_init_pos_range": [[0.0, 0.0], [0.0, 0.0], [0.25, 0.25]],
+                        "base_init_rpy_offset_range_deg": [[0.0, 0.0], [0.0, 0.0], [0.0, 0.0]],
+                        "base_init_lin_vel_range": [[0.0, 0.0], [0.0, 0.0], [0.0, 0.0]],
+                        "base_init_ang_vel_range": [[0.0, 0.0], [0.0, 0.0], [0.0, 0.0]],
+                    },
+                    "command_ranges": {
+                        "standing_probability": 0.0,
+                        "lin_vel_range": [0.2, 0.4],
+                        "ang_vel_range": [-4.0, 4.0],
+                        "base_height_range": [0.22, 0.28],
+                        "gimbal_yaw_vel_range": [0.0, 0.0],
+                        "translation_direction_range": [0.0, 0.0],
+                    },
+                    "tracking_gate": {
+                        "height_full_error": 0.02,
+                        "height_zero_error": 0.04,
+                        "attitude_full_angle_deg": 5.0,
+                        "attitude_zero_angle_deg": 18.0,
+                        "floor": 0.30,
+                    },
+                    "reward_scales": {
+                        "leg_symmetry": 0.0,
+                        "tracking_ang_vel": -0.5,
+                        "joint_vel": -0.01,
+                        "wheel_action_rate": -1.0,
+                        "leg_action_rate": -0.15,
+                        "gimbal_spin_track_lin_vel_yaw_frame": 10.0,
+                        "gimbal_spin_track_lin_vel_yaw_lower": -5.0,
+                        "gimbal_spin_heading_error": -6.0,
+                        "gimbal_spin_cross_track": -20.0,
+                    },
+                },
+            },
+            {
+                "name": "direct_slope2",
+                "start_iteration": 1500,
+                "targets": {
+                    "terrain_weights": {
+                        "plane": [0.30],
+                        "slope_up": [0.10, 0.35, 0.25, 0.1, 0.0],
+                        "slope_down": [0.10, 0.35, 0.25, 0.1, 0.0],
+                    },
+                    "wheel_slip": {"strength": 0.2},
+                    "standing_reward": {"tracking_sigma": 0.02},
+                    "domain_rand": {"strength": 0.2},
+                    "sensor_noise": {"strength": 0.2},
+                    "reset_ranges": {
+                        "base_init_pos_range": [[0.0, 0.0], [0.0, 0.0], [0.25, 0.25]],
+                        "base_init_rpy_offset_range_deg": [[0.0, 0.0], [0.0, 0.0], [0.0, 0.0]],
+                        "base_init_lin_vel_range": [[0.0, 0.0], [0.0, 0.0], [0.0, 0.0]],
+                        "base_init_ang_vel_range": [[0.0, 0.0], [0.0, 0.0], [0.0, 0.0]],
+                    },
+                    "command_ranges": {
+                        "standing_probability": 0.0,
+                        "lin_vel_range": [0.2, 0.6],
+                        "ang_vel_range": [-8.0, 8.0],
+                        "base_height_range": [0.24, 0.30],
+                        "gimbal_yaw_vel_range": [0.0, 0.0],
+                        "translation_direction_range": [0.0, 0.0],
+                    },
+                    "tracking_gate": {
+                        "height_full_error": 0.02,
+                        "height_zero_error": 0.04,
+                        "attitude_full_angle_deg": 5.0,
+                        "attitude_zero_angle_deg": 18.0,
+                        "floor": 0.30,
+                    },
+                    "reward_scales": {
+                        "leg_symmetry": 0.0,
+                        "tracking_ang_vel": -0.5,
+                        "joint_vel": -0.01,
+                        "wheel_action_rate": -1.0,
+                        "leg_action_rate": -0.15,
+                        "gimbal_spin_track_lin_vel_yaw_frame": 12.0,
+                        "gimbal_spin_track_lin_vel_yaw_lower": -5.0,
+                        "gimbal_spin_heading_error": -6.0,
+                        "gimbal_spin_cross_track": -20.0,
+                    },
+                },
+            },
+              {
+                "name": "direct_slope3",
+                "start_iteration": 2500,
+                "targets": {
+                    "terrain_weights":{
+                        "plane": [0.30],
+                        "slope_up": [0.10, 0.25, 0.35, 0.1, 0.0],
+                        "slope_down": [0.10, 0.25, 0.35, 0.1, 0.0],
+                    },
+                    "wheel_slip": {"strength": 0.2},
+                    "standing_reward": {"tracking_sigma": 0.02},
+                    "domain_rand": {"strength": 0.2},
+                    "sensor_noise": {"strength": 0.2},
+                    "reset_ranges": {
+                        "base_init_pos_range": [[0.0, 0.0], [0.0, 0.0], [0.25, 0.25]],
+                        "base_init_rpy_offset_range_deg": [[0.0, 0.0], [0.0, 0.0], [0.0, 0.0]],
+                        "base_init_lin_vel_range": [[0.0, 0.0], [0.0, 0.0], [0.0, 0.0]],
+                        "base_init_ang_vel_range": [[0.0, 0.0], [0.0, 0.0], [0.0, 0.0]],
+                    },
+                    "command_ranges": {
+                        "standing_probability": 0.0,
+                        "lin_vel_range": [0.1 ,0.75],
+                        "ang_vel_range": [-10.0, 10.0],
+                        "base_height_range": [0.24, 0.36],
+                        "gimbal_yaw_vel_range": [0.0, 0.0],
+                        "translation_direction_range": [0.0, 0.0],
+                    },
+                    "tracking_gate": {
+                        "height_full_error": 0.02,
+                        "height_zero_error": 0.04,
+                        "attitude_full_angle_deg": 5.0,
+                        "attitude_zero_angle_deg": 18.0,
+                        "floor": 0.30,
+                    },
+                    "reward_scales": {
+                        "leg_symmetry": 0.0,
+                        "tracking_ang_vel": -0.5,
+                        "joint_vel": -0.01,
+                        "wheel_action_rate": -1.0,
+                        "leg_action_rate": -0.15,
+                        "gimbal_spin_track_lin_vel_yaw_frame": 14.0,
+                        "gimbal_spin_track_lin_vel_yaw_lower": -7.0,
+                        "gimbal_spin_heading_error": -6.0,
+                        "gimbal_spin_cross_track": -20.0,
+                    },
+                },
+            },
+            {
+                    "name": "oblique_slope",
+                    "start_iteration": 3800,
+                    "targets": {
+                        "terrain_weights":{
+                            "plane": [0.30],
+                            "slope_up": [0.10, 0.15, 0.35, 0.2, 0.0],
+                            "slope_down": [0.10, 0.15, 0.35, 0.2, 0.0],
+                        },
+                        "command_ranges": {
+                            "standing_probability": 0.0,
+                            "lin_vel_range": [0.0 ,0.75],
+                            "ang_vel_range": [-10.0, 10.0],
+                            "base_height_range": [0.24, 0.36],
+                            "gimbal_yaw_vel_range": [0.0, 0.0],
+                            "translation_direction_range": [-math.pi/6, math.pi/6],
+                        },
+                        
+                    },
+                },
+            #     {
+            #     "name": "oblique_slope3",
+            #     "start_iteration": 4500,
+            #     "targets": {
+            #         "terrain_weights":{
+            #             "plane": [0.30],
+            #             "slope_up": [0.10, 0.15, 0.35, 0.2, 0.0],
+            #             "slope_down": [0.10, 0.15, 0.35, 0.2, 0.0],
+            #         },
+            #         "command_ranges": {
+            #             "standing_probability": 0.0,
+            #             "lin_vel_range": [0.1 ,0.75],
+            #             "ang_vel_range": [-10.0, 10.0],
+            #             "base_height_range": [0.24, 0.36],
+            #             "gimbal_yaw_vel_range": [0.0, 0.0],
+            #             "translation_direction_range": [-math.pi/6, math.pi/6],
+            #         },
+                    
+            #     },
+            # },
+                
         ],
     }

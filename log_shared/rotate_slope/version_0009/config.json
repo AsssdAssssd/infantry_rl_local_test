@@ -754,12 +754,18 @@
       "plane": [
         0.3
       ],
-      "tilted_plane": [
-        0.3,
-        0.3,
-        0.2,
-        0.0,
-        0.0,
+      "slope_up": [
+        0.35,
+        0.35,
+        0.1,
+        0.1,
+        0.0
+      ],
+      "slope_down": [
+        0.35,
+        0.35,
+        0.1,
+        0.1,
         0.0
       ]
     }
@@ -961,30 +967,39 @@
     "enabled": true,
     "stages": [
       {
-        "name": "stand",
+        "name": "direct_slope",
         "start_iteration": 0,
         "targets": {
+          "terrain_weights": {
+            "plane": [
+              0.3
+            ],
+            "slope_up": [
+              0.35,
+              0.35,
+              0.1,
+              0.1,
+              0.0
+            ],
+            "slope_down": [
+              0.35,
+              0.35,
+              0.1,
+              0.1,
+              0.0
+            ]
+          },
           "wheel_slip": {
             "strength": 0.2
           },
+          "standing_reward": {
+            "tracking_sigma": 0.02
+          },
           "domain_rand": {
-            "strength": 0.0
+            "strength": 0.1
           },
           "sensor_noise": {
-            "strength": 0.0
-          },
-          "terrain_weights": {
-            "plane": [
-              0.2
-            ],
-            "tilted_plane": [
-              0.3,
-              0.3,
-              0.2,
-              0.2,
-              0.1,
-              0.1
-            ]
+            "strength": 0.1
           },
           "reset_ranges": {
             "base_init_pos_range": [
@@ -997,8 +1012,8 @@
                 0.0
               ],
               [
-                0.22,
-                0.22
+                0.25,
+                0.25
               ]
             ],
             "base_init_rpy_offset_range_deg": [
@@ -1045,244 +1060,18 @@
             ]
           },
           "command_ranges": {
-            "standing_probability": 1.0,
+            "standing_probability": 0.0,
             "lin_vel_range": [
-              0.0,
-              0.0
+              0.2,
+              0.4
             ],
             "ang_vel_range": [
-              0.0,
-              0.0
+              -4.0,
+              4.0
             ],
             "base_height_range": [
-              0.28,
+              0.22,
               0.28
-            ],
-            "gimbal_yaw_vel_range": [
-              -0.0,
-              0.0
-            ]
-          },
-          "termination_limits": {
-            "termination_if_roll_greater_than": 20.0,
-            "termination_if_pitch_greater_than": 20.0,
-            "tilt_termination_duration_s": 0.3,
-            "base_contact_termination_duration_s": 0.25
-          },
-          "reward_scales": {
-            "leg_symmetry": 0.0
-          }
-        }
-      },
-      {
-        "name": "rotation_slow",
-        "start_iteration": 1500,
-        "targets": {
-          "wheel_slip": {
-            "strength": 0.3
-          },
-          "standing_reward": {
-            "tracking_sigma": 0.1
-          },
-          "domain_rand": {
-            "strength": 0.0
-          },
-          "sensor_noise": {
-            "strength": 0.0
-          },
-          "reset_ranges": {
-            "base_init_pos_range": [
-              [
-                0.0,
-                0.0
-              ],
-              [
-                0.0,
-                0.0
-              ],
-              [
-                0.22,
-                0.22
-              ]
-            ],
-            "base_init_rpy_offset_range_deg": [
-              [
-                0.0,
-                0.0
-              ],
-              [
-                0.0,
-                0.0
-              ],
-              [
-                0.0,
-                0.0
-              ]
-            ],
-            "base_init_lin_vel_range": [
-              [
-                0.0,
-                0.0
-              ],
-              [
-                0.0,
-                0.0
-              ],
-              [
-                0.0,
-                0.0
-              ]
-            ],
-            "base_init_ang_vel_range": [
-              [
-                0.0,
-                0.0
-              ],
-              [
-                0.0,
-                0.0
-              ],
-              [
-                0.0,
-                0.0
-              ]
-            ]
-          },
-          "command_ranges": {
-            "standing_probability": 0.1,
-            "lin_vel_range": [
-              0.0,
-              0.0
-            ],
-            "ang_vel_range": [
-              -3.0,
-              3.0
-            ],
-            "base_height_range": [
-              0.2,
-              0.3
-            ],
-            "gimbal_yaw_vel_range": [
-              -0.0,
-              0.0
-            ],
-            "translation_direction_range": [
-              0.0,
-              0.0
-            ]
-          },
-          "tracking_gate": {
-            "height_full_error": 0.03,
-            "height_zero_error": 0.09,
-            "attitude_full_angle_deg": 2.0,
-            "attitude_zero_angle_deg": 10.0,
-            "floor": 0.3
-          },
-          "reward_scales": {
-            "standing_drift": -1.0,
-            "tracking_ang_vel": -2.0,
-            "gimbal_spin_track_lin_vel_yaw_frame": 6.0,
-            "base_balance": -20.0
-          }
-        }
-      },
-      {
-        "name": "rotation_mid",
-        "start_iteration": 4000,
-        "targets": {
-          "standing_reward": {
-            "tracking_sigma": 0.05
-          },
-          "domain_rand": {
-            "strength": 0.0
-          },
-          "sensor_noise": {
-            "strength": 0.0
-          },
-          "terrain_weights": {
-            "plane": [
-              0.2
-            ],
-            "tilted_plane": [
-              0.2,
-              0.2,
-              0.2,
-              0.2,
-              0.1,
-              0.1
-            ]
-          },
-          "reset_ranges": {
-            "base_init_pos_range": [
-              [
-                0.0,
-                0.0
-              ],
-              [
-                0.0,
-                0.0
-              ],
-              [
-                0.22,
-                0.22
-              ]
-            ],
-            "base_init_rpy_offset_range_deg": [
-              [
-                0.0,
-                0.0
-              ],
-              [
-                0.0,
-                0.0
-              ],
-              [
-                0.0,
-                0.0
-              ]
-            ],
-            "base_init_lin_vel_range": [
-              [
-                0.0,
-                0.0
-              ],
-              [
-                0.0,
-                0.0
-              ],
-              [
-                0.0,
-                0.0
-              ]
-            ],
-            "base_init_ang_vel_range": [
-              [
-                0.0,
-                0.0
-              ],
-              [
-                0.0,
-                0.0
-              ],
-              [
-                0.0,
-                0.0
-              ]
-            ]
-          },
-          "command_ranges": {
-            "standing_probability": 0.1,
-            "lin_vel_range": [
-              0.0,
-              0.0
-            ],
-            "ang_vel_range": [
-              -6.0,
-              6.0
-            ],
-            "base_height_range": [
-              0.2,
-              0.34
             ],
             "gimbal_yaw_vel_range": [
               0.0,
@@ -1295,52 +1084,58 @@
           },
           "tracking_gate": {
             "height_full_error": 0.02,
-            "height_zero_error": 0.05,
-            "attitude_full_angle_deg": 2.8,
-            "attitude_zero_angle_deg": 13.0,
+            "height_zero_error": 0.04,
+            "attitude_full_angle_deg": 5.0,
+            "attitude_zero_angle_deg": 18.0,
             "floor": 0.3
           },
           "reward_scales": {
-            "standing_drift": -2.0,
-            "gated_tracking_ang_vel": 1.5,
-            "tracking_ang_vel": -1.0,
-            "base_balance": -20.0,
-            "base_contact": -15.0,
-            "landing_base_oscillation": -0.3,
-            "landing_joint_vel": -0.01,
-            "gimbal_spin_track_lin_vel_yaw_frame": 8.0,
-            "height_gate": 3.0
+            "leg_symmetry": 0.0,
+            "tracking_ang_vel": -0.5,
+            "joint_vel": -0.01,
+            "wheel_action_rate": -1.0,
+            "leg_action_rate": -0.15,
+            "gimbal_spin_track_lin_vel_yaw_frame": 10.0,
+            "gimbal_spin_track_lin_vel_yaw_lower": -5.0,
+            "gimbal_spin_heading_error": -6.0,
+            "gimbal_spin_cross_track": -20.0
           }
         }
       },
       {
-        "name": "rotation_fast",
-        "start_iteration": 7000,
+        "name": "direct_slope2",
+        "start_iteration": 1500,
         "targets": {
+          "terrain_weights": {
+            "plane": [
+              0.3
+            ],
+            "slope_up": [
+              0.1,
+              0.35,
+              0.25,
+              0.1,
+              0.0
+            ],
+            "slope_down": [
+              0.1,
+              0.35,
+              0.25,
+              0.1,
+              0.0
+            ]
+          },
           "wheel_slip": {
-            "strength": 0.4
+            "strength": 0.2
           },
           "standing_reward": {
             "tracking_sigma": 0.02
           },
           "domain_rand": {
-            "strength": 0.0
-          },
-          "terrain_weights": {
-            "plane": [
-              0.2
-            ],
-            "tilted_plane": [
-              0.1,
-              0.15,
-              0.15,
-              0.2,
-              0.2,
-              0.15
-            ]
+            "strength": 0.2
           },
           "sensor_noise": {
-            "strength": 0.0
+            "strength": 0.2
           },
           "reset_ranges": {
             "base_init_pos_range": [
@@ -1353,8 +1148,8 @@
                 0.0
               ],
               [
-                0.22,
-                0.22
+                0.25,
+                0.25
               ]
             ],
             "base_init_rpy_offset_range_deg": [
@@ -1401,17 +1196,153 @@
             ]
           },
           "command_ranges": {
-            "standing_probability": 0.25,
+            "standing_probability": 0.0,
             "lin_vel_range": [
+              0.2,
+              0.6
+            ],
+            "ang_vel_range": [
+              -8.0,
+              8.0
+            ],
+            "base_height_range": [
+              0.24,
+              0.3
+            ],
+            "gimbal_yaw_vel_range": [
               0.0,
               0.0
+            ],
+            "translation_direction_range": [
+              0.0,
+              0.0
+            ]
+          },
+          "tracking_gate": {
+            "height_full_error": 0.02,
+            "height_zero_error": 0.04,
+            "attitude_full_angle_deg": 5.0,
+            "attitude_zero_angle_deg": 18.0,
+            "floor": 0.3
+          },
+          "reward_scales": {
+            "leg_symmetry": 0.0,
+            "tracking_ang_vel": -0.5,
+            "joint_vel": -0.01,
+            "wheel_action_rate": -1.0,
+            "leg_action_rate": -0.15,
+            "gimbal_spin_track_lin_vel_yaw_frame": 12.0,
+            "gimbal_spin_track_lin_vel_yaw_lower": -5.0,
+            "gimbal_spin_heading_error": -6.0,
+            "gimbal_spin_cross_track": -20.0
+          }
+        }
+      },
+      {
+        "name": "direct_slope3",
+        "start_iteration": 2500,
+        "targets": {
+          "terrain_weights": {
+            "plane": [
+              0.3
+            ],
+            "slope_up": [
+              0.1,
+              0.25,
+              0.35,
+              0.1,
+              0.0
+            ],
+            "slope_down": [
+              0.1,
+              0.25,
+              0.35,
+              0.1,
+              0.0
+            ]
+          },
+          "wheel_slip": {
+            "strength": 0.2
+          },
+          "standing_reward": {
+            "tracking_sigma": 0.02
+          },
+          "domain_rand": {
+            "strength": 0.2
+          },
+          "sensor_noise": {
+            "strength": 0.2
+          },
+          "reset_ranges": {
+            "base_init_pos_range": [
+              [
+                0.0,
+                0.0
+              ],
+              [
+                0.0,
+                0.0
+              ],
+              [
+                0.25,
+                0.25
+              ]
+            ],
+            "base_init_rpy_offset_range_deg": [
+              [
+                0.0,
+                0.0
+              ],
+              [
+                0.0,
+                0.0
+              ],
+              [
+                0.0,
+                0.0
+              ]
+            ],
+            "base_init_lin_vel_range": [
+              [
+                0.0,
+                0.0
+              ],
+              [
+                0.0,
+                0.0
+              ],
+              [
+                0.0,
+                0.0
+              ]
+            ],
+            "base_init_ang_vel_range": [
+              [
+                0.0,
+                0.0
+              ],
+              [
+                0.0,
+                0.0
+              ],
+              [
+                0.0,
+                0.0
+              ]
+            ]
+          },
+          "command_ranges": {
+            "standing_probability": 0.0,
+            "lin_vel_range": [
+              0.1,
+              0.75
             ],
             "ang_vel_range": [
               -10.0,
               10.0
             ],
             "base_height_range": [
-              0.2,
+              0.24,
               0.36
             ],
             "gimbal_yaw_vel_range": [
@@ -1431,290 +1362,15 @@
             "floor": 0.3
           },
           "reward_scales": {
-            "standing_drift": -3.0,
+            "leg_symmetry": 0.0,
+            "tracking_ang_vel": -0.5,
             "joint_vel": -0.01,
             "wheel_action_rate": -1.0,
             "leg_action_rate": -0.15,
-            "tracking_ang_vel": -0.5,
-            "gimbal_spin_track_lin_vel_yaw_frame": 10.0
-          }
-        }
-      },
-      {
-        "name": "rotation_fast_domain",
-        "start_iteration": 9000,
-        "targets": {
-          "standing_reward": {
-            "tracking_sigma": 0.02
-          },
-          "domain_rand": {
-            "strength": 0.1
-          },
-          "sensor_noise": {
-            "strength": 0.1
-          }
-        }
-      },
-      {
-        "name": "locomotion_straight",
-        "start_iteration": 10000,
-        "targets": {
-          "domain_rand": {
-            "strength": 0.1
-          },
-          "sensor_noise": {
-            "strength": 0.1
-          },
-          "command_ranges": {
-            "standing_probability": 0.0,
-            "lin_vel_range": [
-              0.0,
-              0.5
-            ],
-            "ang_vel_range": [
-              -10.0,
-              10.0
-            ],
-            "base_height_range": [
-              0.2,
-              0.36
-            ],
-            "gimbal_yaw_vel_range": [
-              0.0,
-              0.0
-            ],
-            "translation_direction_range": [
-              0.0,
-              0.0
-            ]
-          },
-          "reward_scales": {
-            "gimbal_spin_track_lin_vel_yaw_frame": 10.0,
-            "gimbal_spin_track_lin_vel_yaw_lower": -5.0,
+            "gimbal_spin_track_lin_vel_yaw_frame": 14.0,
+            "gimbal_spin_track_lin_vel_yaw_lower": -7.0,
             "gimbal_spin_heading_error": -6.0,
             "gimbal_spin_cross_track": -20.0
-          }
-        }
-      },
-      {
-        "name": "locomotion_turn",
-        "start_iteration": 12000,
-        "targets": {
-          "domain_rand": {
-            "strength": 0.2
-          },
-          "sensor_noise": {
-            "strength": 0.2
-          },
-          "reset_ranges": {
-            "base_init_pos_range": [
-              [
-                0.0,
-                0.0
-              ],
-              [
-                0.0,
-                0.0
-              ],
-              [
-                0.22,
-                0.24
-              ]
-            ],
-            "base_init_rpy_offset_range_deg": [
-              [
-                0.0,
-                0.0
-              ],
-              [
-                0.0,
-                0.0
-              ],
-              [
-                0.0,
-                0.0
-              ]
-            ],
-            "base_init_lin_vel_range": [
-              [
-                -0.5,
-                0.5
-              ],
-              [
-                0.0,
-                0.0
-              ],
-              [
-                0.0,
-                0.0
-              ]
-            ],
-            "base_init_ang_vel_range": [
-              [
-                0.0,
-                0.0
-              ],
-              [
-                0.0,
-                0.0
-              ],
-              [
-                -1.0,
-                1.0
-              ]
-            ]
-          },
-          "command_ranges": {
-            "standing_probability": 0.1,
-            "lin_vel_range": [
-              0.0,
-              0.75
-            ],
-            "ang_vel_range": [
-              -10.0,
-              10.0
-            ],
-            "base_height_range": [
-              0.2,
-              0.36
-            ],
-            "gimbal_yaw_vel_range": [
-              0.0,
-              0.0
-            ],
-            "translation_direction_range": [
-              -1.5707963267948966,
-              1.5707963267948966
-            ]
-          },
-          "reward_scales": {
-            "gimbal_spin_track_lin_vel_yaw_frame": 12.0,
-            "gimbal_spin_track_lin_vel_yaw_lower": -6.0,
-            "gimbal_spin_heading_error": -8.0,
-            "gimbal_spin_cross_track": -22.0
-          }
-        }
-      },
-      {
-        "name": "full_range",
-        "start_iteration": 13500,
-        "targets": {
-          "domain_rand": {
-            "strength": 0.3
-          },
-          "sensor_noise": {
-            "strength": 0.3
-          },
-          "reset_ranges": {
-            "base_init_pos_range": [
-              [
-                0.0,
-                0.0
-              ],
-              [
-                0.0,
-                0.0
-              ],
-              [
-                0.22,
-                0.24
-              ]
-            ],
-            "base_init_rpy_offset_range_deg": [
-              [
-                0.0,
-                0.0
-              ],
-              [
-                0.0,
-                0.0
-              ],
-              [
-                0.0,
-                0.0
-              ]
-            ],
-            "base_init_lin_vel_range": [
-              [
-                -0.5,
-                0.5
-              ],
-              [
-                0.0,
-                0.0
-              ],
-              [
-                0.0,
-                0.0
-              ]
-            ],
-            "base_init_ang_vel_range": [
-              [
-                0.0,
-                0.0
-              ],
-              [
-                0.0,
-                0.0
-              ],
-              [
-                -1.0,
-                1.0
-              ]
-            ]
-          },
-          "command_ranges": {
-            "standing_probability": 0.25,
-            "lin_vel_range": [
-              0.0,
-              0.75
-            ],
-            "ang_vel_range": [
-              -10.0,
-              10.0
-            ],
-            "base_height_range": [
-              0.2,
-              0.36
-            ],
-            "gimbal_yaw_vel_range": [
-              0.0,
-              0.0
-            ],
-            "translation_direction_range": [
-              -3.141592653589793,
-              3.141592653589793
-            ]
-          },
-          "reward_scales": {
-            "gimbal_spin_track_lin_vel_yaw_frame": 12.0,
-            "gimbal_spin_track_lin_vel_yaw_lower": -7.0,
-            "gimbal_spin_heading_error": -10.0,
-            "gimbal_spin_cross_track": -25.0
-          }
-        }
-      },
-      {
-        "name": "full_range-hard",
-        "start_iteration": 15000,
-        "targets": {
-          "domain_rand": {
-            "strength": 0.5
-          },
-          "sensor_noise": {
-            "strength": 0.5
-          }
-        }
-      },
-      {
-        "name": "full_range-hard_max",
-        "start_iteration": 16000,
-        "targets": {
-          "domain_rand": {
-            "strength": 1.0
-          },
-          "sensor_noise": {
-            "strength": 1.0
           }
         }
       }
@@ -1771,7 +1427,7 @@
     },
     "num_steps_per_env": 24,
     "save_interval": 100,
-    "run_name": "rotation_tilt/version_0007",
+    "run_name": "rotation_slope/version_0009",
     "logger": "tensorboard"
   }
 }

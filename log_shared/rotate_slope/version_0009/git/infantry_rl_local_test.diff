@@ -1,0 +1,363 @@
+--- git commit ---
+10b5e687aa26417e936466e5d05807a8092e5174
+
+
+--- git status ---
+On branch rotate
+Your branch is up to date with 'origin/rotate'.
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   experiments/genesis/wheel_leg_infantry/tasks/rotation/config.py
+	modified:   experiments/genesis/wheel_leg_infantry/tasks/rotation/eval.py
+	modified:   experiments/genesis/wheel_leg_infantry/tasks/rotation/eval_render_video.py
+	modified:   experiments/genesis/wheel_leg_infantry/tasks/rotation/terrain.py
+	modified:   experiments/genesis/wheel_leg_infantry/tasks/rotation/train.py
+
+no changes added to commit (use "git add" and/or "git commit -a") 
+
+
+--- git diff ---
+diff --git a/experiments/genesis/wheel_leg_infantry/tasks/rotation/config.py b/experiments/genesis/wheel_leg_infantry/tasks/rotation/config.py
+index 7c9a77d..dea36ed 100644
+--- a/experiments/genesis/wheel_leg_infantry/tasks/rotation/config.py
++++ b/experiments/genesis/wheel_leg_infantry/tasks/rotation/config.py
+@@ -406,3 +406,159 @@ def _curriculum_cfg() -> dict:
+             },
+         ],
+     }
++
++
++# 直接进入“平移小陀螺过坡”的 ablation：只用现有 slope_up/slope_down 地形。
++# 出生在 slope 的平 approach/top，自带方向，不会生在 ramp 上。
++DIRECT_SLOPE_TERRAIN_WEIGHTS = {
++    "plane": [0.30],
++    "slope_up": [0.35, 0.35, 0.1, 0.1, 0.0],
++    "slope_down": [0.35, 0.35, 0.1, 0.1, 0.0],
++}
++
++
++def direct_slope_curriculum_cfg() -> dict:
++    """跳过 stand/rotation 课程，直接练 vx + wz 过 10° 上/下坡。"""
++    return {
++        "enabled": True,
++        "stages": [
++            {
++                "name": "direct_slope",
++                "start_iteration": 0,
++                "targets": {
++                    "terrain_weights": deepcopy(DIRECT_SLOPE_TERRAIN_WEIGHTS),
++                    "wheel_slip": {"strength": 0.2},
++                    "standing_reward": {"tracking_sigma": 0.02},
++                    "domain_rand": {"strength": 0.1},
++                    "sensor_noise": {"strength": 0.1},
++                    "reset_ranges": {
++                        "base_init_pos_range": [[0.0, 0.0], [0.0, 0.0], [0.25, 0.25]],
++                        "base_init_rpy_offset_range_deg": [[0.0, 0.0], [0.0, 0.0], [0.0, 0.0]],
++                        "base_init_lin_vel_range": [[0.0, 0.0], [0.0, 0.0], [0.0, 0.0]],
++                        "base_init_ang_vel_range": [[0.0, 0.0], [0.0, 0.0], [0.0, 0.0]],
++                    },
++                    "command_ranges": {
++                        "standing_probability": 0.0,
++                        "lin_vel_range": [0.2, 0.4],
++                        "ang_vel_range": [-4.0, 4.0],
++                        "base_height_range": [0.22, 0.28],
++                        "gimbal_yaw_vel_range": [0.0, 0.0],
++                        "translation_direction_range": [0.0, 0.0],
++                    },
++                    "tracking_gate": {
++                        "height_full_error": 0.02,
++                        "height_zero_error": 0.04,
++                        "attitude_full_angle_deg": 5.0,
++                        "attitude_zero_angle_deg": 18.0,
++                        "floor": 0.30,
++                    },
++                    "reward_scales": {
++                        "leg_symmetry": 0.0,
++                        "tracking_ang_vel": -0.5,
++                        "joint_vel": -0.01,
++                        "wheel_action_rate": -1.0,
++                        "leg_action_rate": -0.15,
++                        "gimbal_spin_track_lin_vel_yaw_frame": 10.0,
++                        "gimbal_spin_track_lin_vel_yaw_lower": -5.0,
++                        "gimbal_spin_heading_error": -6.0,
++                        "gimbal_spin_cross_track": -20.0,
++                    },
++                },
++            },
++            {
++                "name": "direct_slope2",
++                "start_iteration": 1500,
++                "targets": {
++                    "terrain_weights": {
++                        "plane": [0.30],
++                        "slope_up": [0.10, 0.35, 0.25, 0.1, 0.0],
++                        "slope_down": [0.10, 0.35, 0.25, 0.1, 0.0],
++                    },
++                    "wheel_slip": {"strength": 0.2},
++                    "standing_reward": {"tracking_sigma": 0.02},
++                    "domain_rand": {"strength": 0.2},
++                    "sensor_noise": {"strength": 0.2},
++                    "reset_ranges": {
++                        "base_init_pos_range": [[0.0, 0.0], [0.0, 0.0], [0.25, 0.25]],
++                        "base_init_rpy_offset_range_deg": [[0.0, 0.0], [0.0, 0.0], [0.0, 0.0]],
++                        "base_init_lin_vel_range": [[0.0, 0.0], [0.0, 0.0], [0.0, 0.0]],
++                        "base_init_ang_vel_range": [[0.0, 0.0], [0.0, 0.0], [0.0, 0.0]],
++                    },
++                    "command_ranges": {
++                        "standing_probability": 0.0,
++                        "lin_vel_range": [0.2, 0.6],
++                        "ang_vel_range": [-8.0, 8.0],
++                        "base_height_range": [0.24, 0.30],
++                        "gimbal_yaw_vel_range": [0.0, 0.0],
++                        "translation_direction_range": [0.0, 0.0],
++                    },
++                    "tracking_gate": {
++                        "height_full_error": 0.02,
++                        "height_zero_error": 0.04,
++                        "attitude_full_angle_deg": 5.0,
++                        "attitude_zero_angle_deg": 18.0,
++                        "floor": 0.30,
++                    },
++                    "reward_scales": {
++                        "leg_symmetry": 0.0,
++                        "tracking_ang_vel": -0.5,
++                        "joint_vel": -0.01,
++                        "wheel_action_rate": -1.0,
++                        "leg_action_rate": -0.15,
++                        "gimbal_spin_track_lin_vel_yaw_frame": 12.0,
++                        "gimbal_spin_track_lin_vel_yaw_lower": -5.0,
++                        "gimbal_spin_heading_error": -6.0,
++                        "gimbal_spin_cross_track": -20.0,
++                    },
++                },
++            },
++              {
++                "name": "direct_slope3",
++                "start_iteration": 2500,
++                "targets": {
++                    "terrain_weights":{
++                        "plane": [0.30],
++                        "slope_up": [0.10, 0.25, 0.35, 0.1, 0.0],
++                        "slope_down": [0.10, 0.25, 0.35, 0.1, 0.0],
++                    },
++                    "wheel_slip": {"strength": 0.2},
++                    "standing_reward": {"tracking_sigma": 0.02},
++                    "domain_rand": {"strength": 0.2},
++                    "sensor_noise": {"strength": 0.2},
++                    "reset_ranges": {
++                        "base_init_pos_range": [[0.0, 0.0], [0.0, 0.0], [0.25, 0.25]],
++                        "base_init_rpy_offset_range_deg": [[0.0, 0.0], [0.0, 0.0], [0.0, 0.0]],
++                        "base_init_lin_vel_range": [[0.0, 0.0], [0.0, 0.0], [0.0, 0.0]],
++                        "base_init_ang_vel_range": [[0.0, 0.0], [0.0, 0.0], [0.0, 0.0]],
++                    },
++                    "command_ranges": {
++                        "standing_probability": 0.0,
++                        "lin_vel_range": [0.1 ,0.75],
++                        "ang_vel_range": [-10.0, 10.0],
++                        "base_height_range": [0.24, 0.36],
++                        "gimbal_yaw_vel_range": [0.0, 0.0],
++                        "translation_direction_range": [0.0, 0.0],
++                    },
++                    "tracking_gate": {
++                        "height_full_error": 0.02,
++                        "height_zero_error": 0.04,
++                        "attitude_full_angle_deg": 5.0,
++                        "attitude_zero_angle_deg": 18.0,
++                        "floor": 0.30,
++                    },
++                    "reward_scales": {
++                        "leg_symmetry": 0.0,
++                        "tracking_ang_vel": -0.5,
++                        "joint_vel": -0.01,
++                        "wheel_action_rate": -1.0,
++                        "leg_action_rate": -0.15,
++                        "gimbal_spin_track_lin_vel_yaw_frame": 14.0,
++                        "gimbal_spin_track_lin_vel_yaw_lower": -7.0,
++                        "gimbal_spin_heading_error": -6.0,
++                        "gimbal_spin_cross_track": -20.0,
++                    },
++                },
++            },
++            
++        ],
++    }
+diff --git a/experiments/genesis/wheel_leg_infantry/tasks/rotation/eval.py b/experiments/genesis/wheel_leg_infantry/tasks/rotation/eval.py
+index 2927155..d5bbd52 100644
+--- a/experiments/genesis/wheel_leg_infantry/tasks/rotation/eval.py
++++ b/experiments/genesis/wheel_leg_infantry/tasks/rotation/eval.py
+@@ -46,6 +46,10 @@ def _parse_args(argv=None):
+ 
+ def _apply_terrain_overrides(env_cfg, args):
+     preset = args.terrain or env_cfg.get("terrain", {}).get("preset", "plane")
++    # --terrain/--difficulty 是单地形覆盖；否则 mix 的 terrain_weights 会继续生效。
++    if args.terrain is not None or args.difficulty is not None or args.terrain_size is not None:
++        env_cfg.pop("terrain_weights", None)
++        env_cfg.pop("terrain_variants", None)
+     if preset == "flat":
+         preset = "plane"
+     env_cfg["terrain"] = default_terrain_cfg(preset)
+diff --git a/experiments/genesis/wheel_leg_infantry/tasks/rotation/eval_render_video.py b/experiments/genesis/wheel_leg_infantry/tasks/rotation/eval_render_video.py
+index fdbe155..3c9f8f6 100644
+--- a/experiments/genesis/wheel_leg_infantry/tasks/rotation/eval_render_video.py
++++ b/experiments/genesis/wheel_leg_infantry/tasks/rotation/eval_render_video.py
+@@ -23,22 +23,22 @@ from .env import RotateEnv
+ import math
+ 
+ DEFAULT_COMMAND_SEQUENCE = [
+-    {"step": 0, "lin_vel": 0.3, "ang_vel": 0.0, "base_height": 0.28, "gimbal_yaw_vel": 0.0, "translation_direction": 0.0},
+-    {"step": 500, "ang_vel": -8.0,"translation_direction": math.pi/2,"gimbal_yaw_vel": -0.5},
++    {"step": 0, "lin_vel": 0.75, "ang_vel": -8.0, "base_height": 0.28, "gimbal_yaw_vel": 0.0, "translation_direction": 0.0},
++    {"step": 500, "ang_vel": -8.0,},
+     # {"step": 1167, "ang_vel": 0.0},
+     # {"step": 1333, "ang_vel": 3.0,"base_height": 0.30},
+     # {"step": 2000, "ang_vel": 0.0},
+     # {"step": 2167, "ang_vel": 6.0,"base_height": 0.25},
+     # {"step": 2833, "ang_vel": 0.0},
+-    {"step": 1000, "ang_vel": -8.0, "lin_vel": 0.5,"gimbal_yaw_vel": 0.0},
++    {"step": 1000, "ang_vel": -8.0, "gimbal_yaw_vel": 0.0},
+     # {"step": 3667, "ang_vel": 0.0},
+     # {"step": 3833, "ang_vel": 10.0},
+     # {"step": 4500, "ang_vel": 0.0},
+-    {"step": 1500,"lin_vel": 0.75, "ang_vel": -10.0,"base_height": 0.34,"translation_direction": math.pi},
+-    # {"step": 5333, "ang_vel": 0.0},
+-    # {"step": 5500, "ang_vel": 13.0},
+-    # {"step": 6167, "ang_vel": 0.0},
+-    {"step": 2000, "ang_vel": -10.0,"base_height": 0.34,"translation_direction": 0},
++    # {"step": 1500,"lin_vel": 0.75, "ang_vel": -10.0,"base_height": 0.34,"translation_direction": math.pi},
++    # # {"step": 5333, "ang_vel": 0.0},
++    # # {"step": 5500, "ang_vel": 13.0},
++    # # {"step": 6167, "ang_vel": 0.0},
++    # {"step": 2000, "ang_vel": -10.0,"base_height": 0.34,"translation_direction": 0},
+     # {"step": 7000, "ang_vel": 0.0},
+ ]
+ 
+@@ -66,6 +66,10 @@ def _parse_args(argv=None):
+ 
+ def _apply_terrain_overrides(env_cfg, args):
+     preset = args.terrain or env_cfg.get("terrain", {}).get("preset", "plane")
++    # --terrain/--difficulty 是单地形覆盖；否则 mix 的 terrain_weights 会继续生效。
++    if args.terrain is not None or args.difficulty is not None or args.terrain_size is not None:
++        env_cfg.pop("terrain_weights", None)
++        env_cfg.pop("terrain_variants", None)
+     if preset == "flat":
+         preset = "plane"
+     env_cfg["terrain"] = default_terrain_cfg(preset)
+@@ -146,6 +150,14 @@ def main():
+         show_viewer=False,
+     )
+ 
++    geometry = getattr(env.terrain, "geometry", None)
++    print(
++        "[eval_render_video] terrain: "
++        f"{type(env.terrain).__name__} preset={getattr(env.terrain, 'preset', None)} "
++        f"angle={getattr(geometry, 'slope_angle_deg', None)} "
++        f"ramp={getattr(geometry, 'ramp_length', None)}"
++    )
++
+     runner = OnPolicyRunner(env, train_cfg, str(run_dir), device=gs.device)
+     runner.load(str(checkpoint_path), map_location=gs.device)
+     policy = runner.get_inference_policy(device=gs.device)
+diff --git a/experiments/genesis/wheel_leg_infantry/tasks/rotation/terrain.py b/experiments/genesis/wheel_leg_infantry/tasks/rotation/terrain.py
+index 9643289..37e9ad0 100644
+--- a/experiments/genesis/wheel_leg_infantry/tasks/rotation/terrain.py
++++ b/experiments/genesis/wheel_leg_infantry/tasks/rotation/terrain.py
+@@ -156,10 +156,15 @@ class RotationTerrain(TerrainPatches):
+         self.task_names = tuple(dict.fromkeys(variant["task"] for variant in self.variants))
+         self._base_height_lower = []
+         self._base_height_upper = []
++        self._variant_gradient_x = []
++        self._variant_gradient_y = []
+         for variant in self.variants:
+             lower, upper = self._variant_base_height_bounds(variant)
+             self._base_height_lower.append(lower)
+             self._base_height_upper.append(upper)
++            gx, gy = self._variant_gradient(variant)
++            self._variant_gradient_x.append(gx)
++            self._variant_gradient_y.append(gy)
+         self._variant_tasks = torch.tensor(
+             [self.task_names.index(variant["task"]) for variant in self.variants],
+             dtype=torch.long,
+@@ -187,6 +192,16 @@ class RotationTerrain(TerrainPatches):
+         self.target_types = None
+         self.task_ids = None
+ 
++    def _variant_gradient(self, variant):
++        if variant["preset"] != "tilted_plane":
++            return 0.0, 0.0
++        params = variant["config"].get("subterrain_parameters", {}).get("tilted_plane")
++        if not params:
++            return 0.0, 0.0
++        angle = math.radians(float(params.get("slope_angle_deg", 0.0)))
++        direction = math.radians(float(params.get("direction_deg", 0.0)))
++        return math.tan(angle) * math.cos(direction), math.tan(angle) * math.sin(direction)
++
+     def _variant_base_height_bounds(self, variant):
+         if variant["preset"] != "tilted_plane":
+             return 0.0, float("inf")
+@@ -209,6 +224,11 @@ class RotationTerrain(TerrainPatches):
+         upper = torch.tensor(self._base_height_upper, device=tile_indices.device, dtype=torch.float32)
+         return lower[tile_indices], upper[tile_indices]
+ 
++    def variant_gradients(self, tile_indices):
++        gx = torch.tensor(self._variant_gradient_x, device=tile_indices.device, dtype=torch.float32)
++        gy = torch.tensor(self._variant_gradient_y, device=tile_indices.device, dtype=torch.float32)
++        return gx[tile_indices], gy[tile_indices]
++
+     def _key(self, variant):
+         return (variant["task"], variant["preset"], variant["difficulty"])
+ 
+diff --git a/experiments/genesis/wheel_leg_infantry/tasks/rotation/train.py b/experiments/genesis/wheel_leg_infantry/tasks/rotation/train.py
+index f6c7451..74f634c 100644
+--- a/experiments/genesis/wheel_leg_infantry/tasks/rotation/train.py
++++ b/experiments/genesis/wheel_leg_infantry/tasks/rotation/train.py
+@@ -24,7 +24,7 @@ from ...tools.run_utils import (
+     save_run_artifacts,
+     skip_duplicate_process_group_init,
+ )
+-from .config import get_cfgs
++from .config import DIRECT_SLOPE_TERRAIN_WEIGHTS, direct_slope_curriculum_cfg, get_cfgs
+ from .env import RotateEnv
+ from .warm_start import validate_source, warm_start_actor
+ from ...terrains.registry import level_catalog
+@@ -34,7 +34,7 @@ def main():
+     parser = argparse.ArgumentParser()
+     parser.add_argument("-v", "--vis", action="store_true", default=False)
+     parser.add_argument("-e", "--exp_name", type=str, default="rotation")
+-    parser.add_argument("-B", "--num_envs", type=int, default=8196)
++    parser.add_argument("-B", "--num_envs", type=int, default=2048)
+     parser.add_argument("--max_iterations", type=int, default=15000)
+     parser.add_argument("--seed", type=int, default=1)
+     parser.add_argument("--terrain", choices=TERRAIN_PRESETS, default=None)
+@@ -44,6 +44,8 @@ def main():
+                         help="rotation-local slope curriculum; keeps the implementation inside tasks/rotation")
+     parser.add_argument("--terrain-schedule", type=str, default=None,
+                         help="start:difficulty,... for --terrain-curriculum (default: 7000:0,10000:2,13500:4)")
++    parser.add_argument("--direct-slope", action="store_true",
++                        help="skip stand/rotation curriculum; train vx+wz directly on existing slope_up/slope_down")
+     parser.add_argument("--log-root", type=str, default="logs")
+     parser.add_argument("--load-weights", type=Path, default=None)
+     parser.add_argument("--load-actor-only", action="store_true",
+@@ -77,6 +79,8 @@ def main():
+         parser.error("--terrain-schedule requires --terrain-curriculum")
+     if args.difficulty is not None and args.difficulty < 0:
+         parser.error("--difficulty must be non-negative")
++    if args.direct_slope and (args.terrain is not None or args.difficulty is not None or args.terrain_curriculum is not None):
++        parser.error("--direct-slope cannot be combined with --terrain/--difficulty/--terrain-curriculum")
+ 
+     dist_info = init_distributed()
+     if dist_info["is_distributed"]:
+@@ -100,6 +104,12 @@ def main():
+             curriculum_cfg = deepcopy(saved_configs["curriculum_cfg"])
+             train_cfg = deepcopy(saved_configs["train_cfg"])
+ 
++    if args.direct_slope:
++        # 直接练“平移小陀螺过坡”：只用现有 slope_up/slope_down，跳过早先的 stand/rotation 课程。
++        env_cfg["terrain_weights"] = deepcopy(DIRECT_SLOPE_TERRAIN_WEIGHTS)
++        env_cfg.pop("terrain_variants", None)
++        curriculum_cfg = direct_slope_curriculum_cfg()
++
+     # 单地形参数优先：显式指定 --terrain / --difficulty / --terrain-curriculum 时关闭配置里的混合地形。
+     if args.terrain is not None or args.difficulty is not None or args.terrain_curriculum is not None:
+         env_cfg.pop("terrain_weights", None)
