@@ -49,7 +49,7 @@ class RotateEnv(RotateRewards, LocomotionEnv):
         self.gimbal_world_yaw = torch.zeros((num_envs,), dtype=gs.tc_float, device=device)
         self.gimbal_yaw_abs_vel=torch.zeros((num_envs,), dtype=gs.tc_float, device=device)
         self.gimbal_yaw_ref = torch.zeros((num_envs,), dtype=gs.tc_float, device=device)
-
+        self.is_stable_dir = False
         super().__init__(
             num_envs=num_envs,
             env_cfg=env_cfg,
@@ -83,12 +83,23 @@ class RotateEnv(RotateRewards, LocomotionEnv):
     def _register_task_curriculum(self):
         super()._register_task_curriculum()
         self.curriculum.register_target("terrain_weights", self._apply_terrain_weights)
+        self.curriculum.register_target("fix_translation_world_direction", self._apply_fix_translation_world_direction)
+
+    def _apply_fix_translation_world_direction(self,values):
+        self.is_stable_dir = values
 
     def _apply_terrain_weights(self, values):
         """混合地形只改权重；各环境在下一次 reset 时切换到新分配。"""
         if not isinstance(self.terrain, RotationTerrain):
             raise ValueError("terrain_weights requires terrain_weights or terrain_variants in env_cfg")
         self.terrain.set_weights(values)
+
+    def _apply_terrain_weights(self, values):
+        """混合地形只改权重；各环境在下一次 reset 时切换到新分配。"""
+        if not isinstance(self.terrain, RotationTerrain):
+            raise ValueError("terrain_weights requires terrain_weights or terrain_variants in env_cfg")
+        self.terrain.set_weights(values)
+
 
     def _apply_terrain_curriculum(self, values):
         if isinstance(self.terrain, RotationTerrain):
@@ -173,6 +184,8 @@ class RotateEnv(RotateRewards, LocomotionEnv):
         self.translation_path_cross_track = torch.zeros_like(self.translation_path_progress)
         self.translation_window_forward_speed = torch.zeros_like(self.translation_path_progress)
         self.translation_window_lateral_speed = torch.zeros_like(self.translation_path_progress)
+
+        self.base_init_yaw = torch.zeros((self.num_envs,),dtype =gs.tc_float, device=self.device)
         self.translation_distance_scale = float(self.obs_scales.get("translation_distance", 1.0))
         self.translation_path_deadband_m = float(self.reward_cfg.get("translation_path_deadband_m", 0.3))
         self.translation_path_limit_m = float(self.reward_cfg.get("translation_path_limit_m", 1.0))
@@ -186,10 +199,15 @@ class RotateEnv(RotateRewards, LocomotionEnv):
 
     def _resample_commands(self, envs_idx):
         super()._resample_commands(envs_idx)
+        selected = slice(None) if envs_idx is None else envs_idx
         if envs_idx is not None and not torch.any(envs_idx):
             return
         if isinstance(self.terrain, RotationTerrain):
             self._resample_mixed_base_height(envs_idx)
+        
+        if self.is_stable_dir:
+            gimbal_trans_dir = self.commands[selected,4]
+            self.commands[selected,4] = _wrap(gimbal_trans_dir -self.base_init_yaw[selected] )
         selected = slice(None) if envs_idx is None else envs_idx
         position = self.base_pos[selected, :2]
         self.translation_path_origin[selected] = position
@@ -284,11 +302,12 @@ class RotateEnv(RotateRewards, LocomotionEnv):
         selected = slice(None) if env_idx is None else env_idx
         # 初始 base 姿态与云台默认角都为 0（单位四元数），故参考角从 0 起。
         self.gimbal_yaw_ang[selected] = 0.0
-        self.gimbal_world_yaw[selected] = 0.0
-        self.gimbal_yaw_ref[selected] = 0.0
+        self.gimbal_world_yaw[selected] =  torch.deg2rad(self.base_euler[selected,2])
+        self.gimbal_yaw_ref[selected] =  torch.deg2rad(self.base_euler[selected,2])
         self.gimbal_yaw_abs_vel[selected] = 0.0
         self.translation_window_age[selected] = 0
         self.translation_path_origin[selected] = self.base_pos[selected, :2]
+        self.base_init_yaw[selected] = torch.deg2rad(self.base_euler[selected,2])
         self.translation_path_yaw[selected] = self.gimbal_world_yaw[selected] + self.get_translation_direction()[selected]
         self.translation_position_history[selected] = self.base_pos[selected, None, :2].expand(
             -1, self.translation_history_length, -1

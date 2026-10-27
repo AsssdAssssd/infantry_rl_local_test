@@ -426,6 +426,7 @@ def direct_slope_curriculum_cfg() -> dict:
                 "name": "direct_slope",
                 "start_iteration": 0,
                 "targets": {
+                    "fix_translation_world_direction":False,
                     "terrain_weights": deepcopy(DIRECT_SLOPE_TERRAIN_WEIGHTS),
                     "wheel_slip": {"strength": 0.2},
                     "standing_reward": {"tracking_sigma": 0.02},
@@ -469,6 +470,7 @@ def direct_slope_curriculum_cfg() -> dict:
                 "name": "direct_slope2",
                 "start_iteration": 1500,
                 "targets": {
+                    "fix_translation_world_direction":False,
                     "terrain_weights": {
                         "plane": [0.30],
                         "slope_up": [0.10, 0.35, 0.25, 0.1, 0.0],
@@ -516,6 +518,7 @@ def direct_slope_curriculum_cfg() -> dict:
                 "name": "direct_slope3",
                 "start_iteration": 2500,
                 "targets": {
+                    "fix_translation_world_direction":False,
                     "terrain_weights":{
                         "plane": [0.30],
                         "slope_up": [0.10, 0.25, 0.35, 0.1, 0.0],
@@ -563,6 +566,7 @@ def direct_slope_curriculum_cfg() -> dict:
                     "name": "oblique_slope",
                     "start_iteration": 3800,
                     "targets": {
+                        "fix_translation_world_direction":False,
                         "terrain_weights":{
                             "plane": [0.30],
                             "slope_up": [0.10, 0.15, 0.35, 0.2, 0.0],
@@ -579,26 +583,59 @@ def direct_slope_curriculum_cfg() -> dict:
                         
                     },
                 },
-            #     {
-            #     "name": "oblique_slope3",
-            #     "start_iteration": 4500,
-            #     "targets": {
-            #         "terrain_weights":{
-            #             "plane": [0.30],
-            #             "slope_up": [0.10, 0.15, 0.35, 0.2, 0.0],
-            #             "slope_down": [0.10, 0.15, 0.35, 0.2, 0.0],
-            #         },
-            #         "command_ranges": {
-            #             "standing_probability": 0.0,
-            #             "lin_vel_range": [0.1 ,0.75],
-            #             "ang_vel_range": [-10.0, 10.0],
-            #             "base_height_range": [0.24, 0.36],
-            #             "gimbal_yaw_vel_range": [0.0, 0.0],
-            #             "translation_direction_range": [-math.pi/6, math.pi/6],
-            #         },
-                    
-            #     },
-            # },
+                {
+                "name": "all_direction_oblique_slope",
+                "start_iteration": 14400,
+                "targets": {
+                    "fix_translation_world_direction":True,
+                    "wheel_slip": {"strength": 0.3},
+                    "standing_reward": {"tracking_sigma": 0.02},
+                    "domain_rand": {"strength": 0.4},
+                    "sensor_noise": {"strength": 0.4},
+                    "terrain_weights":{
+                        "plane": [0.30],
+                        "slope_up": [0.10, 0.15, 0.35, 0.25, 0.0],
+                        "slope_down": [0.10, 0.15, 0.35, 0.25, 0.0],
+                    },
+                    "reset_ranges": {
+                        "base_init_pos_range": [[0.0, 0.0], [0.0, 0.0], [0.25, 0.25]],
+                        "base_init_rpy_offset_range_deg": [[0.0, 0.0], [0.0, 0.0], [-180.0, 180.0]],
+                        "base_init_lin_vel_range": [[0.0, 0.0], [0.0, 0.0], [0.0, 0.0]],
+                        "base_init_ang_vel_range": [[0.0, 0.0], [0.0, 0.0], [0.0, 0.0]],
+                    },
+                    "command_ranges": {
+                        "standing_probability": 0.0,
+                        "lin_vel_range": [0.0 ,0.8],
+                        "ang_vel_range": [-10.0, 10.0],
+                        "base_height_range": [0.24, 0.38],
+                        "gimbal_yaw_vel_range": [0.0, 0.0],
+                        "translation_direction_range": [-math.pi/6, math.pi/6],
+                    },
+                    "reward_scales": {
+                        "tracking_ang_vel": -1.5,
+                        "gimbal_spin_track_lin_vel_yaw_frame": 14.0,
+                        "gimbal_spin_track_lin_vel_yaw_lower": -7.0,
+                        "gimbal_spin_heading_error": -8.0,
+                        "gimbal_spin_cross_track": -2.0,
+                    },
+                },
+            },
+        {
+            "name": "all_direction_oblique_slope2",
+            "start_iteration": 17400,
+            "targets": {
+                "fix_translation_world_direction":True,
+                "wheel_slip": {"strength": 0.4},
+                "domain_rand": {"strength": 0.6},
+                "sensor_noise": {"strength": 0.5},
+                "terrain_weights":{
+                    "plane": [0.30],
+                    "slope_up": [0.10, 0.10, 0.3, 0.25, 0.15],
+                    "slope_down": [0.10, 0.10, 0.3, 0.25, 0.15],
+                },
+              
                 
+            },
+        },
         ],
     }
