@@ -1,0 +1,249 @@
+--- git commit ---
+cd34b8182b91867f48a1fee814b46d1bb139bba1
+
+
+--- git status ---
+On branch rotate
+Your branch is up to date with 'origin/rotate'.
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   experiments/genesis/wheel_leg_infantry/tasks/rotation/config.py
+	modified:   experiments/genesis/wheel_leg_infantry/tasks/rotation/env.py
+	modified:   experiments/genesis/wheel_leg_infantry/tasks/rotation/eval_render_video.py
+
+no changes added to commit (use "git add" and/or "git commit -a") 
+
+
+--- git diff ---
+diff --git a/experiments/genesis/wheel_leg_infantry/tasks/rotation/config.py b/experiments/genesis/wheel_leg_infantry/tasks/rotation/config.py
+index 222ce43..702bf99 100644
+--- a/experiments/genesis/wheel_leg_infantry/tasks/rotation/config.py
++++ b/experiments/genesis/wheel_leg_infantry/tasks/rotation/config.py
+@@ -426,6 +426,7 @@ def direct_slope_curriculum_cfg() -> dict:
+                 "name": "direct_slope",
+                 "start_iteration": 0,
+                 "targets": {
++                    "fix_translation_world_direction":False,
+                     "terrain_weights": deepcopy(DIRECT_SLOPE_TERRAIN_WEIGHTS),
+                     "wheel_slip": {"strength": 0.2},
+                     "standing_reward": {"tracking_sigma": 0.02},
+@@ -469,6 +470,7 @@ def direct_slope_curriculum_cfg() -> dict:
+                 "name": "direct_slope2",
+                 "start_iteration": 1500,
+                 "targets": {
++                    "fix_translation_world_direction":False,
+                     "terrain_weights": {
+                         "plane": [0.30],
+                         "slope_up": [0.10, 0.35, 0.25, 0.1, 0.0],
+@@ -516,6 +518,7 @@ def direct_slope_curriculum_cfg() -> dict:
+                 "name": "direct_slope3",
+                 "start_iteration": 2500,
+                 "targets": {
++                    "fix_translation_world_direction":False,
+                     "terrain_weights":{
+                         "plane": [0.30],
+                         "slope_up": [0.10, 0.25, 0.35, 0.1, 0.0],
+@@ -563,6 +566,7 @@ def direct_slope_curriculum_cfg() -> dict:
+                     "name": "oblique_slope",
+                     "start_iteration": 3800,
+                     "targets": {
++                        "fix_translation_world_direction":False,
+                         "terrain_weights":{
+                             "plane": [0.30],
+                             "slope_up": [0.10, 0.15, 0.35, 0.2, 0.0],
+@@ -579,26 +583,33 @@ def direct_slope_curriculum_cfg() -> dict:
+                         
+                     },
+                 },
+-            #     {
+-            #     "name": "oblique_slope3",
+-            #     "start_iteration": 4500,
+-            #     "targets": {
+-            #         "terrain_weights":{
+-            #             "plane": [0.30],
+-            #             "slope_up": [0.10, 0.15, 0.35, 0.2, 0.0],
+-            #             "slope_down": [0.10, 0.15, 0.35, 0.2, 0.0],
+-            #         },
+-            #         "command_ranges": {
+-            #             "standing_probability": 0.0,
+-            #             "lin_vel_range": [0.1 ,0.75],
+-            #             "ang_vel_range": [-10.0, 10.0],
+-            #             "base_height_range": [0.24, 0.36],
+-            #             "gimbal_yaw_vel_range": [0.0, 0.0],
+-            #             "translation_direction_range": [-math.pi/6, math.pi/6],
+-            #         },
++                {
++                "name": "oblique_slope3",
++                "start_iteration": 4500,
++                "targets": {
++                    "fix_translation_world_direction":True,
++                    "terrain_weights":{
++                        "plane": [0.30],
++                        "slope_up": [0.10, 0.15, 0.35, 0.25, 0.0],
++                        "slope_down": [0.10, 0.15, 0.35, 0.25, 0.0],
++                    },
++                    "reset_ranges": {
++                        "base_init_pos_range": [[0.0, 0.0], [0.0, 0.0], [0.25, 0.25]],
++                        "base_init_rpy_offset_range_deg": [[0.0, 0.0], [0.0, 0.0], [-180.0, 180.0]],
++                        "base_init_lin_vel_range": [[0.0, 0.0], [0.0, 0.0], [0.0, 0.0]],
++                        "base_init_ang_vel_range": [[0.0, 0.0], [0.0, 0.0], [0.0, 0.0]],
++                    },
++                    "command_ranges": {
++                        "standing_probability": 0.0,
++                        "lin_vel_range": [0.1 ,0.75],
++                        "ang_vel_range": [-10.0, 10.0],
++                        "base_height_range": [0.24, 0.36],
++                        "gimbal_yaw_vel_range": [0.0, 0.0],
++                        "translation_direction_range": [-math.pi/6, math.pi/6],
++                    },
+                     
+-            #     },
+-            # },
++                },
++            },
+                 
+         ],
+     }
+diff --git a/experiments/genesis/wheel_leg_infantry/tasks/rotation/env.py b/experiments/genesis/wheel_leg_infantry/tasks/rotation/env.py
+index a201ac3..9bac972 100644
+--- a/experiments/genesis/wheel_leg_infantry/tasks/rotation/env.py
++++ b/experiments/genesis/wheel_leg_infantry/tasks/rotation/env.py
+@@ -49,7 +49,7 @@ class RotateEnv(RotateRewards, LocomotionEnv):
+         self.gimbal_world_yaw = torch.zeros((num_envs,), dtype=gs.tc_float, device=device)
+         self.gimbal_yaw_abs_vel=torch.zeros((num_envs,), dtype=gs.tc_float, device=device)
+         self.gimbal_yaw_ref = torch.zeros((num_envs,), dtype=gs.tc_float, device=device)
+-
++        self.is_stable_dir = False
+         super().__init__(
+             num_envs=num_envs,
+             env_cfg=env_cfg,
+@@ -83,6 +83,16 @@ class RotateEnv(RotateRewards, LocomotionEnv):
+     def _register_task_curriculum(self):
+         super()._register_task_curriculum()
+         self.curriculum.register_target("terrain_weights", self._apply_terrain_weights)
++        self.curriculum.register_target("fix_translation_world_direction", self._apply_fix_translation_world_direction)
++
++    def _apply_fix_translation_world_direction(self,values):
++        self.is_stable_dir = values
++
++    def _apply_terrain_weights(self, values):
++        """混合地形只改权重；各环境在下一次 reset 时切换到新分配。"""
++        if not isinstance(self.terrain, RotationTerrain):
++            raise ValueError("terrain_weights requires terrain_weights or terrain_variants in env_cfg")
++        self.terrain.set_weights(values)
+ 
+     def _apply_terrain_weights(self, values):
+         """混合地形只改权重；各环境在下一次 reset 时切换到新分配。"""
+@@ -90,6 +100,7 @@ class RotateEnv(RotateRewards, LocomotionEnv):
+             raise ValueError("terrain_weights requires terrain_weights or terrain_variants in env_cfg")
+         self.terrain.set_weights(values)
+ 
++
+     def _apply_terrain_curriculum(self, values):
+         if isinstance(self.terrain, RotationTerrain):
+             raise ValueError("terrain curriculum cannot be combined with terrain_weights")
+@@ -173,6 +184,8 @@ class RotateEnv(RotateRewards, LocomotionEnv):
+         self.translation_path_cross_track = torch.zeros_like(self.translation_path_progress)
+         self.translation_window_forward_speed = torch.zeros_like(self.translation_path_progress)
+         self.translation_window_lateral_speed = torch.zeros_like(self.translation_path_progress)
++
++        self.base_init_yaw = torch.zeros((self.num_envs,),dtype =gs.tc_float, device=self.device)
+         self.translation_distance_scale = float(self.obs_scales.get("translation_distance", 1.0))
+         self.translation_path_deadband_m = float(self.reward_cfg.get("translation_path_deadband_m", 0.3))
+         self.translation_path_limit_m = float(self.reward_cfg.get("translation_path_limit_m", 1.0))
+@@ -186,10 +199,15 @@ class RotateEnv(RotateRewards, LocomotionEnv):
+ 
+     def _resample_commands(self, envs_idx):
+         super()._resample_commands(envs_idx)
++        selected = slice(None) if envs_idx is None else envs_idx
+         if envs_idx is not None and not torch.any(envs_idx):
+             return
+         if isinstance(self.terrain, RotationTerrain):
+             self._resample_mixed_base_height(envs_idx)
++        
++        if self.is_stable_dir:
++            gimbal_trans_dir = self.commands[selected,4]
++            self.commands[selected,4] = _wrap(gimbal_trans_dir -self.base_init_yaw[selected] )
+         selected = slice(None) if envs_idx is None else envs_idx
+         position = self.base_pos[selected, :2]
+         self.translation_path_origin[selected] = position
+@@ -284,11 +302,12 @@ class RotateEnv(RotateRewards, LocomotionEnv):
+         selected = slice(None) if env_idx is None else env_idx
+         # 初始 base 姿态与云台默认角都为 0（单位四元数），故参考角从 0 起。
+         self.gimbal_yaw_ang[selected] = 0.0
+-        self.gimbal_world_yaw[selected] = 0.0
+-        self.gimbal_yaw_ref[selected] = 0.0
++        self.gimbal_world_yaw[selected] =  torch.deg2rad(self.base_euler[selected,2])
++        self.gimbal_yaw_ref[selected] =  torch.deg2rad(self.base_euler[selected,2])
+         self.gimbal_yaw_abs_vel[selected] = 0.0
+         self.translation_window_age[selected] = 0
+         self.translation_path_origin[selected] = self.base_pos[selected, :2]
++        self.base_init_yaw[selected] = torch.deg2rad(self.base_euler[selected,2])
+         self.translation_path_yaw[selected] = self.gimbal_world_yaw[selected] + self.get_translation_direction()[selected]
+         self.translation_position_history[selected] = self.base_pos[selected, None, :2].expand(
+             -1, self.translation_history_length, -1
+diff --git a/experiments/genesis/wheel_leg_infantry/tasks/rotation/eval_render_video.py b/experiments/genesis/wheel_leg_infantry/tasks/rotation/eval_render_video.py
+index fdbe155..2a0c101 100644
+--- a/experiments/genesis/wheel_leg_infantry/tasks/rotation/eval_render_video.py
++++ b/experiments/genesis/wheel_leg_infantry/tasks/rotation/eval_render_video.py
+@@ -23,22 +23,22 @@ from .env import RotateEnv
+ import math
+ 
+ DEFAULT_COMMAND_SEQUENCE = [
+-    {"step": 0, "lin_vel": 0.3, "ang_vel": 0.0, "base_height": 0.28, "gimbal_yaw_vel": 0.0, "translation_direction": 0.0},
+-    {"step": 500, "ang_vel": -8.0,"translation_direction": math.pi/2,"gimbal_yaw_vel": -0.5},
++    {"step": 0, "lin_vel": 0.3, "ang_vel": 10.0, "base_height": 0.28, "gimbal_yaw_vel": 0.0, "translation_direction": 0.0},
++    {"step": 500, "ang_vel": 10.0,},
+     # {"step": 1167, "ang_vel": 0.0},
+     # {"step": 1333, "ang_vel": 3.0,"base_height": 0.30},
+     # {"step": 2000, "ang_vel": 0.0},
+     # {"step": 2167, "ang_vel": 6.0,"base_height": 0.25},
+     # {"step": 2833, "ang_vel": 0.0},
+-    {"step": 1000, "ang_vel": -8.0, "lin_vel": 0.5,"gimbal_yaw_vel": 0.0},
++    {"step": 1000, "ang_vel": -10.0, "lin_vel": 0.5,"gimbal_yaw_vel": 0.0},
+     # {"step": 3667, "ang_vel": 0.0},
+     # {"step": 3833, "ang_vel": 10.0},
+     # {"step": 4500, "ang_vel": 0.0},
+-    {"step": 1500,"lin_vel": 0.75, "ang_vel": -10.0,"base_height": 0.34,"translation_direction": math.pi},
+-    # {"step": 5333, "ang_vel": 0.0},
+-    # {"step": 5500, "ang_vel": 13.0},
+-    # {"step": 6167, "ang_vel": 0.0},
+-    {"step": 2000, "ang_vel": -10.0,"base_height": 0.34,"translation_direction": 0},
++    # {"step": 1500,"lin_vel": 0.75, "ang_vel": -10.0,"base_height": 0.34,"translation_direction": math.pi},
++    # # {"step": 5333, "ang_vel": 0.0},
++    # # {"step": 5500, "ang_vel": 13.0},
++    # # {"step": 6167, "ang_vel": 0.0},
++    # {"step": 2000, "ang_vel": -10.0,"base_height": 0.34,"translation_direction": 0},
+     # {"step": 7000, "ang_vel": 0.0},
+ ]
+ 
+@@ -159,8 +159,9 @@ def main():
+     print(f"[eval_render_video] adding camera and starting recording... (fps={fps})")
+     cam = env.scene.visualizer.add_camera(
+         res=(1280, 720),
+-        pos=cam_offset,
+-        lookat=(0.0, 0.0, cam_lookat_z),
++        pos=(2.0,7.0,0.5),
++        # pos=cam_offset,
++        lookat=(2.0, 12.0, 0.25),
+         up=(0.0, 0.0, 1.0),
+         model="pinhole",
+         fov=30,
+@@ -219,10 +220,11 @@ def main():
+             obs_dict, rews, dones, infos = env.step(actions)
+             
+             base_pos = env.base_pos[0].detach().cpu().tolist()
+-            cam.set_pose(
+-                pos=(base_pos[0] + cam_offset[0], base_pos[1] + cam_offset[1], base_pos[2] + cam_offset[2]),
+-                lookat=(base_pos[0], base_pos[1], base_pos[2] + cam_lookat_z),
+-            )
++            # cam.set_pose(
++                # pos=(base_pos[0] + cam_offset[0], base_pos[1] + cam_offset[1], base_pos[2] + cam_offset[2]),
++                # lookat=(base_pos[0], base_pos[1], base_pos[2] + cam_lookat_z),
++            # )
++            # print(f"step:{step}:{base_pos[0]},{base_pos[1]},{base_pos[2]}")
+             cam.render()
+             
+             metrics["step"].append(step)

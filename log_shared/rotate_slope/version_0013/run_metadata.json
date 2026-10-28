@@ -1,6 +1,6 @@
 {
-  "created_at": "2026-10-24T02:51:54+00:00",
-  "run_dir": "/home/zhongrui/infantry_rl_local_test/logs/rotation_slope/version_0009",
+  "created_at": "2026-10-27T08:08:49+00:00",
+  "run_dir": "/home/zhongrui/infantry_rl_local_test/logs/rotation_slope/version_0013",
   "arguments": {
     "vis": false,
     "exp_name": "rotation_slope",
@@ -19,19 +19,19 @@
     "domain_rand": null,
     "sensor_noise": null,
     "wheel_slip": null,
-    "resume": "version_0008",
-    "checkpoint": 1800,
+    "resume": "version_0012",
+    "checkpoint": 14400,
     "resume_config": "saved",
-    "resume_from": "/home/zhongrui/infantry_rl_local_test/logs/rotation_slope/version_0008/model_1800.pt"
+    "resume_from": "/home/zhongrui/infantry_rl_local_test/logs/rotation_slope/version_0012/model_14400.pt"
   },
   "command": [
     "/home/zhongrui/infantry_rl_local_test/experiments/genesis/wheel_leg_infantry/tasks/rotation/train.py",
     "-e",
     "rotation_slope",
     "--resume",
-    "version_0008",
+    "version_0012",
     "--checkpoint",
-    "1800",
+    "14400",
     "--direct-slope"
   ],
   "python": "3.13.16 (main, Oct  9 2026, 15:23:36) [Clang 22.1.3 ]",
@@ -41,6 +41,6 @@
     "rsl-rl-lib": "5.4.2",
     "torch": "2.13.0+cu126"
   },
-  "git_commit": "10b5e687aa26417e936466e5d05807a8092e5174",
+  "git_commit": "cd34b8182b91867f48a1fee814b46d1bb139bba1",
   "git_dirty": true
 }

@@ -20,6 +20,9 @@ GIMBAL_PITCH_JOINT="gimbal_pitch_joint"
 DEFAULT_TERRAIN_WEIGHTS = {
     "plane": [0.3],
     "tilted_plane": [0.3, 0.3, 0.2, 0.0, 0.0, 0.0],
+    "fort":[0.0,0.0,0.0,0.0],
+    "slope_up":[0.0,0.0,0.0,0.0,0.0],
+    "slope_down":[0.0,0.0,0.0,0.0,0.0],
 }
 
 
@@ -114,8 +117,119 @@ def get_cfgs(locomotion_cfgs=None):
     # # 最后一个阶段放开云台速率，让策略学习“跟着 ref 转”
     # curriculum_cfg["stages"][-1]["targets"]["command_ranges"]["gimbal_yaw_vel_range"] = [-1.0, 1.0]
 
-    return env_cfg, obs_cfg, reward_cfg, command_cfg, _curriculum_cfg()
+    return env_cfg, obs_cfg, reward_cfg, command_cfg, _curriculum_cfg2()
 
+
+
+
+
+
+def _curriculum_cfg2() -> dict:
+    #堡垒
+    #先学正过
+    #再学侧过
+    # 歪着过
+    #再学随机点位歪过
+    #全部都是全乡
+    return {
+        "enabled": True,
+        "stages": [
+          {
+                "name": "forward",
+                "start_iteration": 0,
+                "targets": {
+                    "fix_translation_world_direction":True,
+                    "wheel_slip": {"strength": 0.1},
+                    "standing_reward": {"tracking_sigma": 0.02},
+                    "domain_rand": {"strength": 0.2},
+                    "sensor_noise": {"strength": 0.2},
+                    "terrain_weights":{
+                        "fort": [0.3,0.3,0.3,0.3],
+                        "plane": [0.20],
+                        "slope_up": [0.0, 0.0, 0.2, 0.0, 0.0],
+                        "slope_down": [0.0, 0.0, 0.2, 0.0, 0.0],
+                    },
+                    "reset_ranges": {
+                        "base_init_pos_range": [[-4.0, -3.0], [0.0, 0.0], [0.25, 0.25]],
+                        "base_init_rpy_offset_range_deg": [[0.0, 0.0], [0.0, 0.0], [-180.0, 180.0]],
+                        "base_init_lin_vel_range": [[0.0, 0.0], [0.0, 0.0], [0.0, 0.0]],
+                        "base_init_ang_vel_range": [[0.0, 0.0], [0.0, 0.0], [0.0, 0.0]],
+                    },
+                    "command_ranges": {
+                        "standing_probability": 0.0,
+                        "lin_vel_range": [0.0 ,0.4],
+                        "ang_vel_range": [-4.0, 4.0],
+                        "base_height_range": [0.25, 0.3],
+                        "gimbal_yaw_vel_range": [0.0, 0.0],
+                        "translation_direction_range": [0.0,0.0],
+                    },
+                    "reward_scales": {
+                        "tracking_ang_vel": -1.0,
+                        "gimbal_spin_track_lin_vel_yaw_frame": 10.0,
+                        "gimbal_spin_track_lin_vel_yaw_lower": -5.0,
+                        "gimbal_spin_heading_error": -5.0,
+                        "gimbal_spin_cross_track": -3.0,
+                    },
+                },
+            },
+                  {
+                            "name": "y_random_forward",
+                            "start_iteration": 1000,
+                            "targets": {
+                    "fix_translation_world_direction":True,
+
+                                "terrain_weights":{
+                                    "fort": [0.3,0.3,0.3,0.3],
+                                    "plane": [0.20],
+                                    "slope_up": [0.0, 0.0, 0.2, 0.0, 0.0],
+                                    "slope_down": [0.0, 0.0, 0.2, 0.0, 0.0],
+                                },
+                                "reset_ranges": {
+                                    "base_init_pos_range": [[-4.0, -3.0], [-1.0, 1.0], [0.25, 0.25]],
+                                    "base_init_rpy_offset_range_deg": [[0.0, 0.0], [0.0, 0.0], [-180.0, 180.0]],
+                                    "base_init_lin_vel_range": [[0.0, 0.0], [0.0, 0.0], [0.0, 0.0]],
+                                    "base_init_ang_vel_range": [[0.0, 0.0], [0.0, 0.0], [0.0, 0.0]],
+                                },
+                                "command_ranges": {
+                                    "standing_probability": 0.0,
+                                    "lin_vel_range": [0.0 ,0.4],
+                                    "ang_vel_range": [-6.0, 6.0],
+                                    "base_height_range": [0.25, 0.35],
+                                    "gimbal_yaw_vel_range": [0.0, 0.0],
+                                    "translation_direction_range": [0.0,0.0],
+                                },
+                            },
+                        },
+                           {
+                                                    "name": "y_random_oblique",
+                                                    "start_iteration": 2500,
+                                                    "targets": {
+                    "fix_translation_world_direction":True,
+
+                                                        "terrain_weights":{
+                                                            "fort": [0.1,0.35,0.35,0.3],
+                                                            "plane": [0.20],
+                                                            "slope_up": [0.0, 0.0, 0.2, 0.0, 0.0],
+                                                            "slope_down": [0.0, 0.0, 0.2, 0.0, 0.0],
+                                                        },
+                                                        "reset_ranges": {
+                                                            "base_init_pos_range": [[-4.0, -3.0], [-0.5, 0.5], [0.25, 0.25]],
+                                                            "base_init_rpy_offset_range_deg": [[0.0, 0.0], [0.0, 0.0], [-180.0, 180.0]],
+                                                            "base_init_lin_vel_range": [[0.0, 0.0], [0.0, 0.0], [0.0, 0.0]],
+                                                            "base_init_ang_vel_range": [[0.0, 0.0], [0.0, 0.0], [0.0, 0.0]],
+                                                        },
+                                                        "command_ranges": {
+                                                            "standing_probability": 0.0,
+                                                            "lin_vel_range": [0.0 ,0.75],
+                                                            "ang_vel_range": [-8.0, 8.0],
+                                                            "base_height_range": [0.25, 0.38],
+                                                            "gimbal_yaw_vel_range": [-math.pi/6, math.pi/6],
+                                                            "translation_direction_range": [0.0,0.0],
+                                                        },
+                                                    },
+                                                },
+        ]
+    }
 
 
 
